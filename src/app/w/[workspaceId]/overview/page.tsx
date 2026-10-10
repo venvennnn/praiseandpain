@@ -97,6 +97,17 @@ export default async function OverviewPage({
             ? `${run.status}${run.stage ? ` · ${run.stage}` : ""}`
             : "No runs yet"}
         </span>
+        {run?.progress &&
+        typeof run.progress === "object" &&
+        run.progress !== null &&
+        "classifiedSoFar" in (run.progress as object) ? (
+          <span>
+            Classified {(run.progress as { classifiedSoFar?: number }).classifiedSoFar ?? 0}
+            {(run.progress as { remaining?: number }).remaining != null
+              ? ` · ${(run.progress as { remaining?: number }).remaining} left`
+              : ""}
+          </span>
+        ) : null}
       </div>
 
       {!ctx.providerStatus.serpapi || !ctx.providerStatus.jev ? (

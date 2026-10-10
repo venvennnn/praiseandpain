@@ -233,116 +233,164 @@ export const syncPipeline = inngest.createFunction(
       return { collectedCount, failures };
     });
 
-    await step.run("classify", async () => {
-      const { data: taxonomy } = await service
-        .from("taxonomy_versions")
-        .select("id")
-        .eq("workspace_id", workspaceId)
-        .eq("active", true)
-        .single();
+    // Big parallel Jev batches (one HTTP call per review; API has no multi-review bulk endpoint).
+    // Keep step-sized chunks so Inngest/Vercel time limits are not blown, but make them large.
+    const CLASSIFY_BATCH = 80;
+    const CLASSIFY_CONCURRENCY = 20;
+    const MAX_CLASSIFY_BATCHES = 40;
+    let classifiedTotal = 0;
 
-      const { data: pending } = await service
-        .from("feedback")
-        .select("id, original_text, content_hash")
-        .eq("workspace_id", workspaceId)
-        .eq("is_duplicate", false)
-        .limit(500);
-
-      let classified = 0;
-      for (const fb of pending ?? []) {
-        const { data: existing } = await service
-          .from("classifications")
+    for (let batchIndex = 0; batchIndex < MAX_CLASSIFY_BATCHES; batchIndex++) {
+      const batch = await step.run(`classify-batch-${batchIndex}`, async () => {
+        const svc = createServiceClient();
+        const { data: taxonomy } = await svc
+          .from("taxonomy_versions")
           .select("id")
-          .eq("feedback_id", fb.id)
-          .maybeSingle();
-        if (existing) continue;
-
-        const { data: cached } = await service
-          .from("classification_cache")
-          .select("result")
           .eq("workspace_id", workspaceId)
-          .limit(1);
-
-        const result = await classifyFeedback({
-          text: fb.original_text,
-          kind: workspace.kind as WorkspaceKind,
-          taxonomyVersionId: taxonomy?.id ?? "none",
-          cached: null,
-        });
-
-        if (result.status === "skipped") {
-          const message =
-            "TYPESAFE_API_KEY is required for classification. Pipeline aborted — no invented labels.";
-          await checkpointStep(
-            workspaceId,
-            runId,
-            "classify",
-            "classify:fail-no-jev",
-            { reason: message },
-            "failed",
-          );
-          await updateRun(runId, {
-            status: "failed",
-            stage: "classify",
-            error: message,
-            completed_at: new Date().toISOString(),
-          });
-          throw new Error(message);
-        }
-
-        const { data: classification } = await service
-          .from("classifications")
-          .insert({
-            workspace_id: workspaceId,
-            feedback_id: fb.id,
-            taxonomy_version_id: taxonomy?.id,
-            model: result.model,
-            schema_version: result.schemaVersion,
-            status: result.status,
-            is_praise: result.isPraise,
-            is_complaint: result.isComplaint,
-            is_request: result.isRequest,
-            is_question: result.isQuestion,
-            is_irrelevant: result.isIrrelevant,
-            switching_intent: result.switchingIntent,
-            severity: result.severity,
-            aspects: result.aspects,
-            probabilities: result.probabilities,
-            cache_key: result.cacheKey,
-          })
-          .select("id")
+          .eq("active", true)
           .single();
 
-        if (classification && result.evidence.length) {
-          await service.from("evidence_spans").insert(
-            result.evidence.map((e) => ({
-              workspace_id: workspaceId,
-              classification_id: classification.id,
-              feedback_id: fb.id,
-              sentence_id: e.sentenceId,
-              start_offset: e.start,
-              end_offset: e.end,
-              aspect_key: e.aspectKey,
-              sentiment: e.sentiment,
-              excerpt: e.excerpt,
-            })),
-          );
+        const { data: already } = await svc
+          .from("classifications")
+          .select("feedback_id")
+          .eq("workspace_id", workspaceId)
+          .limit(5000);
+        const classifiedSet = new Set((already ?? []).map((row) => row.feedback_id));
+
+        const { data: rows } = await svc
+          .from("feedback")
+          .select("id, original_text")
+          .eq("workspace_id", workspaceId)
+          .eq("is_duplicate", false)
+          .order("created_at", { ascending: true })
+          .limit(2000);
+
+        const unclassified = (rows ?? []).filter((row) => !classifiedSet.has(row.id));
+        const pending = unclassified.slice(0, CLASSIFY_BATCH);
+
+        if (!pending.length) {
+          return { classified: 0, done: true, remaining: 0 };
         }
 
-        await service.from("classification_cache").upsert({
-          cache_key: result.cacheKey,
-          workspace_id: workspaceId,
-          result,
-        });
-        classified += 1;
-        void cached;
-      }
+        let classified = 0;
+        let failed = 0;
 
+        for (let i = 0; i < pending.length; i += CLASSIFY_CONCURRENCY) {
+          const chunk = pending.slice(i, i + CLASSIFY_CONCURRENCY);
+          const results = await Promise.all(
+            chunk.map(async (fb) => {
+              const result = await classifyFeedback({
+                text: fb.original_text,
+                kind: workspace.kind as WorkspaceKind,
+                taxonomyVersionId: taxonomy?.id ?? "none",
+                cached: null,
+              });
+
+              if (result.status === "skipped") {
+                throw new Error(
+                  "TYPESAFE_API_KEY is required for classification. Pipeline aborted — no invented labels.",
+                );
+              }
+
+              const { data: classification, error } = await svc
+                .from("classifications")
+                .insert({
+                  workspace_id: workspaceId,
+                  feedback_id: fb.id,
+                  taxonomy_version_id: taxonomy?.id,
+                  model: result.model,
+                  schema_version: result.schemaVersion,
+                  status: result.status,
+                  is_praise: result.isPraise,
+                  is_complaint: result.isComplaint,
+                  is_request: result.isRequest,
+                  is_question: result.isQuestion,
+                  is_irrelevant: result.isIrrelevant,
+                  switching_intent: result.switchingIntent,
+                  severity: result.severity,
+                  aspects: result.aspects,
+                  probabilities: result.probabilities,
+                  cache_key: result.cacheKey,
+                })
+                .select("id")
+                .single();
+
+              if (error || !classification) {
+                // Unique conflict = already classified in a parallel/retry path.
+                if (error && /duplicate|unique/i.test(error.message)) {
+                  return { ok: true as const };
+                }
+                return { ok: false as const };
+              }
+
+              if (result.evidence.length) {
+                await svc.from("evidence_spans").insert(
+                  result.evidence.map((e) => ({
+                    workspace_id: workspaceId,
+                    classification_id: classification.id,
+                    feedback_id: fb.id,
+                    sentence_id: e.sentenceId,
+                    start_offset: e.start,
+                    end_offset: e.end,
+                    aspect_key: e.aspectKey,
+                    sentiment: e.sentiment,
+                    excerpt: e.excerpt,
+                  })),
+                );
+              }
+
+              await svc.from("classification_cache").upsert({
+                cache_key: result.cacheKey,
+                workspace_id: workspaceId,
+                result,
+              });
+
+              return { ok: true as const };
+            }),
+          );
+
+          for (const r of results) {
+            if (r.ok) classified += 1;
+            else failed += 1;
+          }
+        }
+
+        const remaining = Math.max(0, unclassified.length - classified);
+        await updateRun(runId, {
+          stage: "classify",
+          progress: {
+            ...collected,
+            classifiedSoFar: classifiedSet.size + classified,
+            classifiedBatch: batchIndex,
+            classifiedInBatch: classified,
+            failedInBatch: failed,
+            remaining,
+          },
+        });
+
+        await checkpointStep(workspaceId, runId, "classify", `classify:batch:${batchIndex}`, {
+          classified,
+          failed,
+          remaining,
+        });
+
+        return {
+          classified,
+          done: remaining === 0,
+          remaining,
+        };
+      });
+
+      classifiedTotal += batch.classified;
+      if (batch.done) break;
+    }
+
+    await step.run("classify-finalize", async () => {
       await updateRun(runId, {
         stage: "aggregate",
-        progress: { ...collected, classified },
+        progress: { ...collected, classified: classifiedTotal },
       });
-      return { classified };
+      return { classified: classifiedTotal };
     });
 
     await step.run("aggregate-compare", async () => {
