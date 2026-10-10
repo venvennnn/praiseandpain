@@ -8,6 +8,7 @@ import type { MetricResult } from "@/shared/schemas/metrics";
 import { integrationStatus } from "@/server/config/requirements";
 import { planLabel } from "@/shared/plans";
 import { aspectLabel } from "@/server/jev/taxonomy";
+import { TrendSection } from "@/components/workspace/trend-section";
 
 export default async function OverviewPage({
   params,
@@ -218,6 +219,13 @@ export default async function OverviewPage({
           </ul>
         </section>
       </div>
+
+      <TrendSection
+        supabase={ctx.supabase}
+        workspaceId={workspaceId}
+        plan={(ctx.workspace as { plan?: string }).plan}
+        timeZone={ctx.workspace.timezone}
+      />
 
       <section className="mt-12">
         <h2 className="font-[family-name:var(--font-display)] text-2xl">Aspect mix</h2>

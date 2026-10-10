@@ -3,6 +3,7 @@ import { WorkspaceShell } from "@/components/workspace/shell";
 import { loadWorkspaceContext } from "@/lib/workspace-page";
 import { Button } from "@/components/ui/button";
 import { aspectLabel } from "@/server/jev/taxonomy";
+import { TrendSection } from "@/components/workspace/trend-section";
 
 export default async function ReportsPage({
   params,
@@ -49,6 +50,13 @@ export default async function ReportsPage({
           <a href={`/api/workspaces/${workspaceId}/exports?format=html`}>Export HTML</a>
         </Button>
       </div>
+
+      <TrendSection
+        supabase={ctx.supabase}
+        workspaceId={workspaceId}
+        plan={(ctx.workspace as { plan?: string }).plan}
+        timeZone={ctx.workspace.timezone}
+      />
 
       <section className="mt-10">
         <h2 className="font-[family-name:var(--font-display)] text-xl">Weekly comparison</h2>
