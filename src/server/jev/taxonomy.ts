@@ -185,11 +185,88 @@ export function aspectsForKind(kind: WorkspaceKind): AspectDef[] {
   }
 }
 
-export const CLASSIFICATION_SCHEMA_VERSION = "feedback_aspects.v3";
+export const CLASSIFICATION_SCHEMA_VERSION = "feedback_aspects.v4";
+
+export type SpecificIssue = {
+  key: string;
+  name: string;
+  parent: string;
+  polarity: "positive" | "negative";
+};
+
+const SPECIFIC_ISSUES: SpecificIssue[] = [
+  { key: "warm_welcome", name: "Warm welcome", parent: "staff", polarity: "positive" },
+  { key: "staff_ignored", name: "Staff ignored guests", parent: "staff", polarity: "negative" },
+  { key: "staff_rude", name: "Rude staff", parent: "staff", polarity: "negative" },
+  { key: "seated_quickly", name: "Seated quickly", parent: "speed", polarity: "positive" },
+  { key: "long_wait", name: "Long wait to be served", parent: "speed", polarity: "negative" },
+  { key: "late_start", name: "Event started late", parent: "speed", polarity: "negative" },
+  { key: "food_excellent", name: "Food worth praising", parent: "food", polarity: "positive" },
+  { key: "food_cold", name: "Food arrived cold", parent: "food", polarity: "negative" },
+  { key: "portions_small", name: "Portions too small", parent: "food", polarity: "negative" },
+  { key: "drinks_good", name: "Drinks done well", parent: "drinks", polarity: "positive" },
+  { key: "drinks_poor", name: "Drinks were poor", parent: "drinks", polarity: "negative" },
+  { key: "place_spotless", name: "Place was spotless", parent: "cleanliness", polarity: "positive" },
+  { key: "toilets_dirty", name: "Toilets were dirty", parent: "cleanliness", polarity: "negative" },
+  { key: "good_value", name: "Felt worth the price", parent: "price", polarity: "positive" },
+  { key: "overpriced", name: "Felt overpriced", parent: "price", polarity: "negative" },
+  { key: "hidden_fees", name: "Hidden or surprise fees", parent: "price", polarity: "negative" },
+  { key: "lovely_room", name: "Room, light, and vibe", parent: "ambience", polarity: "positive" },
+  { key: "too_noisy", name: "Too noisy to enjoy", parent: "ambience", polarity: "negative" },
+  { key: "easy_to_reach", name: "Easy to reach", parent: "place", polarity: "positive" },
+  { key: "parking_hard", name: "Parking was hard", parent: "place", polarity: "negative" },
+  { key: "hard_to_find", name: "Hard to find", parent: "place", polarity: "negative" },
+  { key: "booking_smooth", name: "Booking was smooth", parent: "booking", polarity: "positive" },
+  { key: "booking_fell_apart", name: "Booking fell apart", parent: "booking", polarity: "negative" },
+  { key: "occasion_worked", name: "The occasion worked", parent: "event", polarity: "positive" },
+  { key: "occasion_rushed", name: "The occasion felt rushed", parent: "event", polarity: "negative" },
+  { key: "easy_to_start", name: "Easy to get started", parent: "ux", polarity: "positive" },
+  { key: "confusing_flow", name: "Confusing to use", parent: "ux", polarity: "negative" },
+  { key: "never_crashes", name: "Stays stable", parent: "reliability", polarity: "positive" },
+  { key: "crashes_on_launch", name: "Crashes on launch", parent: "reliability", polarity: "negative" },
+  { key: "crashes_mid_task", name: "Crashes during a task", parent: "reliability", polarity: "negative" },
+  { key: "snappy", name: "Feels fast", parent: "performance", polarity: "positive" },
+  { key: "laggy", name: "Feels laggy", parent: "performance", polarity: "negative" },
+  { key: "loved_feature", name: "A feature people love", parent: "features", polarity: "positive" },
+  { key: "missing_feature", name: "A missing feature", parent: "features", polarity: "negative" },
+  { key: "fair_price", name: "Pricing feels fair", parent: "pricing", polarity: "positive" },
+  { key: "paywall", name: "Paywall or surprise charge", parent: "pricing", polarity: "negative" },
+  { key: "support_fast", name: "Support replied and fixed it", parent: "support", polarity: "positive" },
+  { key: "support_silent", name: "Support never replied", parent: "support", polarity: "negative" },
+  { key: "helpful_content", name: "Genuinely useful", parent: "content_quality", polarity: "positive" },
+  { key: "poor_production", name: "Audio or picture quality", parent: "content_quality", polarity: "negative" },
+  { key: "exact_topic", name: "Delivered the promised topic", parent: "topic_fit", polarity: "positive" },
+  { key: "misleading_title", name: "Title did not match", parent: "topic_fit", polarity: "negative" },
+  { key: "tight_edit", name: "Tight, well paced", parent: "pacing", polarity: "positive" },
+  { key: "too_much_filler", name: "Too long or too much filler", parent: "pacing", polarity: "negative" },
+  { key: "strong_hook", name: "Hooked quickly", parent: "hook", polarity: "positive" },
+  { key: "slow_intro", name: "Took too long to start", parent: "hook", polarity: "negative" },
+  { key: "clear_next_step", name: "Clear next step", parent: "cta_clarity", polarity: "positive" },
+  { key: "unclear_ask", name: "Ask was confusing", parent: "cta_clarity", polarity: "negative" },
+  { key: "creator_replies", name: "Creator replies", parent: "community", polarity: "positive" },
+  { key: "hostile_comments", name: "Hostile comments", parent: "community", polarity: "negative" },
+];
+
+const specificByKey = new Map(SPECIFIC_ISSUES.map((issue) => [issue.key, issue]));
+
+export function specificIssuesForKind(kind: WorkspaceKind): SpecificIssue[] {
+  const parents = new Set(aspectsForKind(kind).map((aspect) => aspect.key));
+  return SPECIFIC_ISSUES.filter((issue) => parents.has(issue.parent));
+}
+
+export function specificIssue(key: string): SpecificIssue | undefined {
+  return specificByKey.get(key);
+}
+
+export function isSpecificIssue(key: string): boolean {
+  return specificByKey.has(key);
+}
 
 export function aspectLabel(key: string): string {
+  const specific = specificByKey.get(key);
+  if (specific) return specific.name;
   const all = [...BUSINESS_ASPECTS, ...APP_ASPECTS, ...CREATOR_ASPECTS];
-  return all.find((a) => a.key === key)?.name ?? key.replaceAll("_", " ");
+  return all.find((aspect) => aspect.key === key)?.name ?? key.replaceAll("_", " ");
 }
 
 const THEME_CRITERIA = {
@@ -229,8 +306,19 @@ export function buildClassificationQuestions(kind: WorkspaceKind) {
     primary_theme: {
       type: "choice",
       instructions:
-        "Pick the single theme that most explains the verdict. Choose none when the verdict is unclear or the review is only a vague 'great place' / 'never again' with no topic.",
+        "Pick the single broad theme that most explains the verdict. Choose none when the verdict is unclear or the review is only a vague 'great place' / 'never again' with no topic.",
       criteria: primaryCriteria,
+    },
+    specific_issue: {
+      type: "choice",
+      instructions:
+        "Pick the single most specific issue or strength actually written in the review. Choose none if the text is only vague praise or a vague complaint. Do not guess a finer issue than the words support.",
+      criteria: {
+        none: "No specific issue is stated",
+        ...Object.fromEntries(
+          specificIssuesForKind(kind).map((issue) => [issue.key, issue.name]),
+        ),
+      },
     },
     is_irrelevant: {
       type: "noul",

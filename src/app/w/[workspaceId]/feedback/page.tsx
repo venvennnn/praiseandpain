@@ -2,7 +2,7 @@ import Link from "next/link";
 import { WorkspaceShell } from "@/components/workspace/shell";
 import { loadWorkspaceContext } from "@/lib/workspace-page";
 import { FeedbackExplorer } from "@/components/feedback/explorer";
-import { feedbackLimitForPlan, planLabel } from "@/shared/plans";
+import { feedbackLimitForPlan } from "@/shared/plans";
 
 export default async function FeedbackPage({
   params,
@@ -60,9 +60,10 @@ export default async function FeedbackPage({
     >
       <div className="flex items-end justify-between gap-4">
         <div>
-          <h1 className="font-[family-name:var(--font-display)] text-3xl">Feedback</h1>
+          <p className="text-xs font-semibold tracking-[0.14em] text-[var(--color-ink-muted)] uppercase">Evidence</p>
+          <h1 className="font-[family-name:var(--font-display)] text-3xl font-semibold">Praise & Pain</h1>
           <p className="mt-1 text-sm text-[var(--color-ink-muted)]">
-            Green is praise, red is pain, and white is anything that is not clearly one or the other.
+            Green is praise, red is pain, and white is anything that is not clearly one or the other. Newest {perEntityLimit} reviews per place.
           </p>
         </div>
         <Link
