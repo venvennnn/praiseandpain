@@ -26,12 +26,18 @@ export function SyncButton({
     const res = await fetch(`/api/workspaces/${workspaceId}/sync`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ workspaceId, entityIds: [], forceFull: false }),
+      body: JSON.stringify({ workspaceId, forceFull: false }),
     });
     const json = await res.json();
     setLoading(false);
     if (!res.ok) {
-      setMessage(json.error ?? "Sync failed");
+      const detail =
+        typeof json.error === "string"
+          ? json.error
+          : Array.isArray(json.missing)
+            ? json.missing.join("; ")
+            : "Sync failed";
+      setMessage(detail);
       return;
     }
     setMessage(`Sync queued (run ${json.runId}). Collecting real SerpApi feedback…`);

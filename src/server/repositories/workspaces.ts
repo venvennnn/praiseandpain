@@ -9,6 +9,26 @@ export async function createWorkspaceWithDefaults(
   userId: string,
   input: OnboardingInput,
 ) {
+  // Prefer atomic RPC (security definer) so RLS bootstrap cannot fail mid-way.
+  const { data: rpcWorkspace, error: rpcError } = await supabase.rpc("create_workspace", {
+    p_name: input.name,
+    p_kind: input.kind,
+    p_timezone: input.timezone,
+    p_language: input.language,
+    p_analysis_window_days: input.analysisWindowDays,
+    p_refresh_cadence_hours: input.refreshCadenceHours,
+    p_retrieval_budget: input.retrievalBudget,
+  });
+
+  if (!rpcError && rpcWorkspace) {
+    return Array.isArray(rpcWorkspace) ? rpcWorkspace[0] : rpcWorkspace;
+  }
+
+  // Fallback for DBs that have not applied the RPC migration yet.
+  if (rpcError && !/Could not find the function|function .* does not exist/i.test(rpcError.message)) {
+    throw new Error(rpcError.message);
+  }
+
   const { data: workspace, error } = await supabase
     .from("workspaces")
     .insert({

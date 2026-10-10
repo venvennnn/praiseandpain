@@ -27,6 +27,33 @@ export async function POST(
       );
     }
 
+    const { data: rpcEntity, error: rpcError } = await supabase.rpc(
+      "register_workspace_entity",
+      {
+        p_workspace_id: workspaceId,
+        p_source: body.source,
+        p_provider_id: body.providerId,
+        p_name: body.name,
+        p_kind: body.kind,
+        p_role: body.role,
+        p_url: body.url ?? null,
+        p_metadata: body.metadata ?? {},
+      },
+    );
+
+    if (!rpcError && rpcEntity) {
+      const entity = Array.isArray(rpcEntity) ? rpcEntity[0] : rpcEntity;
+      return NextResponse.json({ entity }, { status: 201 });
+    }
+
+    if (
+      rpcError &&
+      !/Could not find the function|function .* does not exist/i.test(rpcError.message)
+    ) {
+      return NextResponse.json({ error: rpcError.message }, { status: 500 });
+    }
+
+    // Fallback if RPC migration not applied yet
     const { data: entity, error } = await supabase
       .from("entities")
       .upsert(

@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { ZodError } from "zod";
 import { SyncRequestSchema } from "@/shared/schemas/domain";
 import { AuthError, requireMembership } from "@/server/auth/permissions";
 import { inngest, events } from "@/server/jobs/inngest";
@@ -19,7 +20,7 @@ export async function POST(
     const json = await request.json().catch(() => ({}));
     const body = SyncRequestSchema.parse({
       workspaceId,
-      entityIds: json.entityIds,
+      entityIds: Array.isArray(json.entityIds) ? json.entityIds : [],
       forceFull: json.forceFull,
     });
 
@@ -103,6 +104,12 @@ export async function POST(
     }
     if (err instanceof AuthError) {
       return NextResponse.json({ error: err.message }, { status: err.status });
+    }
+    if (err instanceof ZodError) {
+      return NextResponse.json(
+        { error: err.issues.map((i) => i.message).join("; ") },
+        { status: 400 },
+      );
     }
     const message = err instanceof Error ? err.message : "Invalid sync request";
     return NextResponse.json({ error: message }, { status: 400 });

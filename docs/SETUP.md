@@ -38,10 +38,19 @@ Apply `supabase/migrations/20261010000000_init.sql` in the Supabase SQL editor, 
 npx supabase db push
 ```
 
-Auth redirect URLs:
+### Auth URLs (important — fixes localhost / otp_expired)
 
-- `http://localhost:3000/auth/callback`
-- `https://praiseandpain.site/auth/callback`
+In Supabase → **Authentication → URL Configuration**:
+
+1. **Site URL** = `https://praiseandpain.site` (not localhost once you are live)
+2. **Redirect URLs** (add all of these):
+   - `https://praiseandpain.site/auth/callback`
+   - `https://praiseandpain.site/**`
+   - `http://localhost:3000/auth/callback` (local only)
+
+If Site URL stays `http://localhost:3000`, expired confirmation emails send users to localhost with `otp_expired`.
+
+After changing Site URL, request a **new** confirmation email (old links stay invalid).
 
 Use separate Supabase projects for development and production.
 
