@@ -2,6 +2,7 @@ import Link from "next/link";
 import { WorkspaceShell } from "@/components/workspace/shell";
 import { loadWorkspaceContext } from "@/lib/workspace-page";
 import { formatPercent } from "@/lib/utils";
+import { aspectLabel } from "@/server/jev/taxonomy";
 import type { ComparisonResult, MetricResult } from "@/shared/schemas/metrics";
 
 export default async function CompetitorsPage({
@@ -131,7 +132,7 @@ export default async function CompetitorsPage({
                 ) : (
                   aspectList.map((aspect) => (
                     <tr key={aspect} className="border-b border-[var(--color-border)] align-top">
-                      <td className="py-3 pr-4 font-medium">{aspect}</td>
+                      <td className="py-3 pr-4 font-medium">{aspectLabel(aspect)}</td>
                       {[primary, ...competitors].map((col, idx) => {
                         const m = cell(col.entity.id, aspect);
                         const complaint = m?.complaint_share;

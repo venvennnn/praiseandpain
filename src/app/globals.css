@@ -7,8 +7,8 @@
   --color-ink-muted: #6b7280;
   --color-border: #e5e7eb;
   --color-surface-muted: #f7f8fa;
-  --color-praise: #0f766e;
-  --color-pain: #e11d48;
+  --color-praise: #15803d;
+  --color-pain: #dc2626;
   --color-action: #4338ca;
   --color-action-hover: #3730a3;
   --color-highlight: #eef2ff;
@@ -85,7 +85,74 @@ body {
 
 .hero-atmosphere {
   background:
-    radial-gradient(1200px 500px at 10% -10%, rgba(15, 118, 110, 0.08), transparent 55%),
-    radial-gradient(900px 420px at 90% 0%, rgba(225, 29, 72, 0.07), transparent 50%),
+    radial-gradient(1200px 500px at 10% -10%, rgba(21, 128, 61, 0.1), transparent 55%),
+    radial-gradient(900px 420px at 90% 0%, rgba(220, 38, 38, 0.08), transparent 50%),
     linear-gradient(180deg, #ffffff 0%, #fbfcfd 100%);
+}
+
+.tone-praise {
+  background: linear-gradient(90deg, rgba(21, 128, 61, 0.14), #ffffff 46%);
+  border-left: 4px solid var(--color-praise);
+}
+
+.tone-pain {
+  background: linear-gradient(90deg, rgba(220, 38, 38, 0.12), #ffffff 46%);
+  border-left: 4px solid var(--color-pain);
+}
+
+.tone-neutral {
+  background: #ffffff;
+  border-left: 4px solid transparent;
+}
+
+.feedback-card {
+  animation: rise-in 420ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  transition: transform 180ms ease, box-shadow 180ms ease;
+}
+
+.feedback-card:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 8px 24px rgba(42, 47, 56, 0.06);
+}
+
+.progress-sheen {
+  background-image: linear-gradient(
+    90deg,
+    var(--color-action) 0%,
+    #818cf8 45%,
+    var(--color-action) 100%
+  );
+  background-size: 200% 100%;
+  animation: sheen 1.4s linear infinite;
+}
+
+@keyframes sheen {
+  from {
+    background-position: 100% 0;
+  }
+  to {
+    background-position: -100% 0;
+  }
+}
+
+@keyframes bar-in {
+  from {
+    transform: scaleX(0);
+  }
+  to {
+    transform: scaleX(1);
+  }
+}
+
+.mix-seg {
+  transform-origin: left center;
+  animation: bar-in 700ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.stage-dot {
+  transition: background-color 300ms ease, transform 300ms ease, color 300ms ease;
+}
+
+.stage-dot[data-state="active"] {
+  transform: scale(1.08);
 }

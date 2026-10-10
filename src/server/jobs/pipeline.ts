@@ -2,7 +2,7 @@ import { createServiceClient } from "@/lib/supabase/server";
 import { assertRunOwnership } from "@/server/auth/permissions";
 import { getConnector, serpApiConfigured } from "@/server/connectors";
 import { ConnectorConfigError } from "@/server/connectors/serpapi";
-import { parseFeedbackDate, isEligibleForPeriodComparison } from "@/server/analysis/dates";
+import { parseFeedbackDate } from "@/server/analysis/dates";
 import { contentHash } from "@/server/analysis/text";
 import { classifyFeedback } from "@/server/jev/classify";
 import {
@@ -16,6 +16,8 @@ import { CALCULATION_VERSION, COMPARISON_FORMULA_VERSION } from "@/shared/schema
 import type { SourceType, WorkspaceKind } from "@/shared/schemas/domain";
 import { inngest, events } from "./inngest";
 import { subDays } from "date-fns";
+import { feedbackLimitForPlan, pagesToCoverNewest } from "@/shared/plans";
+import { CLASSIFICATION_SCHEMA_VERSION } from "@/server/jev/taxonomy";
 
 async function updateRun(
   runId: string,
@@ -102,11 +104,13 @@ export const syncPipeline = inngest.createFunction(
       return { entities: data ?? [], forceFull: Boolean(run?.force_full) };
     });
 
-    const collected = await step.run("collect", async () => {
-      let collectedCount = 0;
-      const failures: Array<{ entityId: string; error: string }> = [];
+    const perEntityLimit = feedbackLimitForPlan((workspace as { plan?: string }).plan);
+    const pageBudget = pagesToCoverNewest(perEntityLimit);
+    const pagesPerStep = 6;
+    const collectBatches = Math.max(1, Math.ceil(pageBudget / pagesPerStep));
 
-      if (!serpApiConfigured()) {
+    if (!serpApiConfigured()) {
+      await step.run("collect-fail-no-serpapi", async () => {
         const message =
           "SERPAPI_API_KEY is required for collection. Sync aborted — no fabricated feedback.";
         await checkpointStep(workspaceId, runId, "collect", "collect:fail-no-serpapi", {
@@ -119,118 +123,195 @@ export const syncPipeline = inngest.createFunction(
           completed_at: new Date().toISOString(),
         });
         throw new Error(message);
-      }
+      });
+    }
 
-      for (const entity of entities.entities) {
-        try {
-          const source = entity.source as SourceType;
-          if (source === "csv_import" || source === "json_import") continue;
-          const connector = getConnector(source);
-          const connection = Array.isArray(entity.source_connections)
-            ? entity.source_connections[0]
-            : entity.source_connections;
+    let collectedCount = 0;
+    const failures: Array<{ entityId: string; error: string }> = [];
+    let fatalConfig = false;
 
-          let cursor = entities.forceFull ? null : connection?.cursor ?? null;
-          let pages = 0;
-          const pageBudget = Math.min(20, Math.ceil((workspace.retrieval_budget ?? 200) / 10));
+    for (let entityIndex = 0; entityIndex < entities.entities.length; entityIndex++) {
+      if (fatalConfig) break;
+      const entity = entities.entities[entityIndex];
+      const source = entity.source as SourceType;
+      if (source === "csv_import" || source === "json_import") continue;
 
-          // Budget reservation
-          const { data: ws } = await service
-            .from("workspaces")
-            .select("usage_consumed, usage_limit, retrieval_budget")
-            .eq("id", workspaceId)
-            .single();
-          if (!ws || ws.usage_consumed >= ws.usage_limit) {
-            failures.push({ entityId: entity.id, error: "Usage limit reached" });
-            continue;
-          }
+      let cursor: string | null = null;
+      let covered = 0;
+      let entityDone = false;
 
-          while (pages < pageBudget) {
-            const remaining = ws.usage_limit - ws.usage_consumed;
-            if (remaining <= 0) break;
-
-            const page = await connector.fetchFeedbackPage(entity.provider_id, cursor, {
-              budgetRemaining: remaining,
-            });
-
-            await service.from("provider_calls").insert({
-              workspace_id: workspaceId,
-              run_id: runId,
-              provider: "serpapi",
-              operation: `${source}.fetchFeedbackPage`,
-              estimated_cost: page.quota.estimatedCost,
-              confirmed_usage: page.quota.confirmedUsage,
-              cache_hit: page.quota.cacheHits > 0,
-              success: true,
-            });
-
-            await service
+      for (let batch = 0; batch < collectBatches && !entityDone; batch++) {
+        const piece = await step.run(`collect-e${entityIndex}-b${batch}`, async () => {
+          const svc = createServiceClient();
+          try {
+            const connector = getConnector(source);
+            const { data: ws } = await svc
               .from("workspaces")
-              .update({ usage_consumed: ws.usage_consumed + page.quota.requestsUsed })
-              .eq("id", workspaceId);
-            ws.usage_consumed += page.quota.requestsUsed;
-
-            for (const record of page.records) {
-              const parsed = parseFeedbackDate(record.originalDateString);
-              const hash = contentHash(record.text);
-              const { error } = await service.from("feedback").upsert(
-                {
-                  workspace_id: workspaceId,
-                  entity_id: entity.id,
-                  source,
-                  provider_id: record.providerId,
-                  original_text: record.text,
-                  original_date_string: record.originalDateString,
-                  published_at: parsed.publishedAt,
-                  date_precision: parsed.precision,
-                  retrieved_at: new Date().toISOString(),
-                  language: record.language,
-                  rating: record.rating,
-                  source_url: record.sourceUrl,
-                  content_hash: hash,
-                  author_name: record.authorName,
-                  crosses_boundary_risk: parsed.crossesBoundaryRisk,
-                },
-                { onConflict: "workspace_id,source,provider_id" },
-              );
-              if (!error) collectedCount += 1;
+              .select("usage_consumed, usage_limit")
+              .eq("id", workspaceId)
+              .single();
+            if (!ws || ws.usage_consumed >= ws.usage_limit) {
+              return {
+                added: 0,
+                covered,
+                cursor,
+                done: true,
+                error: "Usage limit reached",
+                fatal: false,
+              };
             }
 
-            cursor = page.cursor;
-            pages += 1;
-            await checkpointStep(
-              workspaceId,
-              runId,
-              "collect",
-              `collect:${entity.id}:page:${pages}`,
-              { cursor, collectedCount, coverage: page.coverage },
-            );
-            if (!page.hasMore) break;
-          }
+            let localCursor = cursor;
+            let localCovered = covered;
+            let added = 0;
+            let pages = 0;
+            let done = false;
 
-          if (connection?.id) {
-            await service
-              .from("source_connections")
-              .update({ cursor, last_synced_at: new Date().toISOString() })
-              .eq("id", connection.id);
-          }
-        } catch (err) {
-          const message =
-            err instanceof ConnectorConfigError
-              ? err.message
-              : err instanceof Error
+            while (pages < pagesPerStep && localCovered < perEntityLimit) {
+              const remaining = ws.usage_limit - ws.usage_consumed;
+              if (remaining <= 0) {
+                done = true;
+                break;
+              }
+              const page = await connector.fetchFeedbackPage(entity.provider_id, localCursor, {
+                budgetRemaining: remaining,
+              });
+              await svc.from("provider_calls").insert({
+                workspace_id: workspaceId,
+                run_id: runId,
+                provider: "serpapi",
+                operation: `${source}.fetchFeedbackPage`,
+                estimated_cost: page.quota.estimatedCost,
+                confirmed_usage: page.quota.confirmedUsage,
+                cache_hit: page.quota.cacheHits > 0,
+                success: true,
+              });
+              await svc
+                .from("workspaces")
+                .update({ usage_consumed: ws.usage_consumed + page.quota.requestsUsed })
+                .eq("id", workspaceId);
+              ws.usage_consumed += page.quota.requestsUsed;
+
+              for (const record of page.records) {
+                if (localCovered >= perEntityLimit) break;
+                const parsed = parseFeedbackDate(record.originalDateString);
+                const hash = contentHash(record.text);
+                const { error } = await svc.from("feedback").upsert(
+                  {
+                    workspace_id: workspaceId,
+                    entity_id: entity.id,
+                    source,
+                    provider_id: record.providerId,
+                    original_text: record.text,
+                    original_date_string: record.originalDateString,
+                    published_at: parsed.publishedAt,
+                    date_precision: parsed.precision,
+                    retrieved_at: new Date().toISOString(),
+                    language: record.language,
+                    rating: record.rating,
+                    source_url: record.sourceUrl,
+                    content_hash: hash,
+                    author_name: record.authorName,
+                    crosses_boundary_risk: parsed.crossesBoundaryRisk,
+                  },
+                  { onConflict: "workspace_id,source,provider_id" },
+                );
+                if (!error) added += 1;
+                localCovered += 1;
+              }
+
+              localCursor = typeof page.cursor === "string" ? page.cursor : null;
+              pages += 1;
+              if (!page.hasMore || localCovered >= perEntityLimit) {
+                done = true;
+                break;
+              }
+            }
+
+            return {
+              added,
+              covered: localCovered,
+              cursor: localCursor,
+              done,
+              error: null as string | null,
+              fatal: false,
+            };
+          } catch (err) {
+            const message =
+              err instanceof ConnectorConfigError
                 ? err.message
-                : "collect failed";
-          failures.push({ entityId: entity.id, error: message });
-          if (err instanceof ConnectorConfigError) break;
+                : err instanceof Error
+                  ? err.message
+                  : "collect failed";
+            return {
+              added: 0,
+              covered,
+              cursor,
+              done: true,
+              error: message,
+              fatal: err instanceof ConnectorConfigError,
+            };
+          }
+        });
+
+        collectedCount += piece.added;
+        covered = piece.covered;
+        cursor = piece.cursor;
+        if (piece.error) {
+          failures.push({ entityId: entity.id, error: piece.error });
+          entityDone = true;
+          if (piece.fatal) fatalConfig = true;
+        } else if (piece.done) {
+          entityDone = true;
         }
+
+        await step.run(`collect-progress-e${entityIndex}-b${batch}`, async () => {
+          await updateRun(runId, {
+            status: "running",
+            stage: "collect",
+            progress: {
+              collectedCount,
+              covered,
+              perEntityLimit,
+              entityIndex,
+              entityCount: entities.entities.length,
+              failures,
+            },
+          });
+        });
       }
 
+      const connection = Array.isArray(entity.source_connections)
+        ? entity.source_connections[0]
+        : entity.source_connections;
+      if (connection?.id) {
+        await step.run(`collect-cursor-e${entityIndex}`, async () => {
+          const svc = createServiceClient();
+          await svc
+            .from("source_connections")
+            .update({ cursor: null, last_synced_at: new Date().toISOString() })
+            .eq("id", connection.id);
+        });
+      }
+    }
+
+    const collected = await step.run("collect-finish", async () => {
+      if (fatalConfig) {
+        const message = failures[0]?.error ?? "SerpApi collection failed";
+        await updateRun(runId, {
+          status: "failed",
+          stage: "collect",
+          error: message,
+          completed_at: new Date().toISOString(),
+          progress: { collectedCount, failures, perEntityLimit },
+        });
+        throw new Error(message);
+      }
       await updateRun(runId, {
         stage: "classify",
-        progress: { collectedCount, failures },
+        progress: { collectedCount, failures, perEntityLimit },
       });
-      return { collectedCount, failures };
+      return { collectedCount, failures, perEntityLimit };
     });
 
     // Big parallel Jev batches (one HTTP call per review; API has no multi-review bulk endpoint).
@@ -250,20 +331,43 @@ export const syncPipeline = inngest.createFunction(
           .eq("active", true)
           .single();
 
+        const perEntityLimit = feedbackLimitForPlan(
+          (workspace as { plan?: string }).plan,
+        );
         const { data: already } = await svc
           .from("classifications")
-          .select("feedback_id")
+          .select("feedback_id, schema_version")
           .eq("workspace_id", workspaceId)
-          .limit(5000);
+          .eq("schema_version", CLASSIFICATION_SCHEMA_VERSION)
+          .limit(8000);
         const classifiedSet = new Set((already ?? []).map((row) => row.feedback_id));
 
-        const { data: rows } = await svc
-          .from("feedback")
-          .select("id, original_text")
-          .eq("workspace_id", workspaceId)
-          .eq("is_duplicate", false)
-          .order("created_at", { ascending: true })
-          .limit(2000);
+        const { data: entityRows } = await svc
+          .from("workspace_entities")
+          .select("entity_id")
+          .eq("workspace_id", workspaceId);
+
+        const newestIds = new Set<string>();
+        const newestText = new Map<string, string>();
+        for (const link of entityRows ?? []) {
+          const { data: newest } = await svc
+            .from("feedback")
+            .select("id, original_text")
+            .eq("workspace_id", workspaceId)
+            .eq("entity_id", link.entity_id)
+            .eq("is_duplicate", false)
+            .order("published_at", { ascending: false, nullsFirst: false })
+            .limit(perEntityLimit);
+          for (const row of newest ?? []) {
+            newestIds.add(row.id);
+            newestText.set(row.id, row.original_text);
+          }
+        }
+
+        const rows = [...newestIds].map((id) => ({
+          id,
+          original_text: newestText.get(id) ?? "",
+        }));
 
         const unclassified = (rows ?? []).filter((row) => !classifiedSet.has(row.id));
         const pending = unclassified.slice(0, CLASSIFY_BATCH);
@@ -408,20 +512,24 @@ export const syncPipeline = inngest.createFunction(
         .eq("workspace_id", workspaceId);
 
       for (const link of entityLinks ?? []) {
-        const countsByAspect = await computeAspectCounts(
+        const scoped = await computeAspectCounts(
           service,
           workspaceId,
           link.entity_id,
-          periodStart,
-          periodEnd,
+          perEntityLimit,
         );
+        const samplePeriod = {
+          start: scoped.oldest ?? period.start,
+          end: scoped.newest ?? period.end,
+          timezone: period.timezone,
+        };
 
         const metrics: Record<string, unknown> = {};
-        for (const [aspectKey, counts] of Object.entries(countsByAspect)) {
+        for (const [aspectKey, counts] of Object.entries(scoped.byAspect)) {
           metrics[aspectKey] = {
-            prevalence: prevalence(counts, period),
-            complaint_share: complaintShare(counts, period),
-            praise_share: praiseShare(counts, period),
+            prevalence: prevalence(counts, samplePeriod),
+            complaint_share: complaintShare(counts, samplePeriod),
+            praise_share: praiseShare(counts, samplePeriod),
             shares_need_not_sum_to_100: true,
           };
         }
@@ -437,10 +545,15 @@ export const syncPipeline = inngest.createFunction(
         await service.from("metric_snapshots").insert({
           workspace_id: workspaceId,
           entity_id: link.entity_id,
-          period_start: period.start,
-          period_end: period.end,
-          filters: { source: null },
-          coverage: { note: "publication_dates_only" },
+          period_start: samplePeriod.start,
+          period_end: samplePeriod.end,
+          filters: { source: null, newest: perEntityLimit },
+          coverage: {
+            note: "newest_reviews_per_place",
+            perEntityLimit,
+            sampled: scoped.sampled,
+            verdicts: scoped.verdicts,
+          },
           metrics,
           formula_version: CALCULATION_VERSION,
           active: true,
@@ -452,21 +565,22 @@ export const syncPipeline = inngest.createFunction(
       const comparisons = [];
 
       if (primary) {
-        const primaryCounts = await computeAspectCounts(
+        const primaryScoped = await computeAspectCounts(
           service,
           workspaceId,
           primary.entity_id,
-          periodStart,
-          periodEnd,
+          perEntityLimit,
         );
+        const primaryCounts = primaryScoped.byAspect;
         for (const competitor of competitors) {
-          const competitorCounts = await computeAspectCounts(
-            service,
-            workspaceId,
-            competitor.entity_id,
-            periodStart,
-            periodEnd,
-          );
+          const competitorCounts = (
+            await computeAspectCounts(
+              service,
+              workspaceId,
+              competitor.entity_id,
+              perEntityLimit,
+            )
+          ).byAspect;
           for (const aspectKey of new Set([
             ...Object.keys(primaryCounts),
             ...Object.keys(competitorCounts),
@@ -537,55 +651,52 @@ async function computeAspectCounts(
   service: ReturnType<typeof createServiceClient>,
   workspaceId: string,
   entityId: string,
-  periodStart: Date,
-  periodEnd: Date,
-): Promise<Record<string, AspectCounts>> {
+  perEntityLimit: number,
+): Promise<{
+  byAspect: Record<string, AspectCounts>;
+  verdicts: { praise: number; pain: number; mixed: number; plain: number };
+  sampled: number;
+  oldest: string | null;
+  newest: string | null;
+}> {
   const { data: feedback } = await service
     .from("feedback")
     .select(
-      "id, published_at, date_precision, crosses_boundary_risk, is_duplicate, classifications(status, is_irrelevant, aspects, evidence_spans(id))",
+      "id, published_at, is_duplicate, classifications(schema_version, status, is_praise, is_complaint, is_irrelevant, aspects)",
     )
     .eq("workspace_id", workspaceId)
-    .eq("entity_id", entityId);
+    .eq("entity_id", entityId)
+    .eq("is_duplicate", false)
+    .order("published_at", { ascending: false, nullsFirst: false })
+    .limit(perEntityLimit);
 
   const byAspect: Record<string, AspectCounts> = {};
+  const verdicts = { praise: 0, pain: 0, mixed: 0, plain: 0 };
   let n = 0;
   const exclusions = { excluded: 0, uncertain: 0, duplicate: 0, undated: 0 };
+  const rows = feedback ?? [];
+  const dated = rows.map((row) => row.published_at).filter((value): value is string => Boolean(value));
 
-  for (const fb of feedback ?? []) {
-    if (fb.is_duplicate) {
-      exclusions.duplicate += 1;
-      continue;
-    }
-    const parsed = {
-      publishedAt: fb.published_at,
-      precision: fb.date_precision,
-      original: null,
-      crossesBoundaryRisk: fb.crosses_boundary_risk,
-    };
-    if (!fb.published_at) {
-      exclusions.undated += 1;
-      continue;
-    }
-    if (!isEligibleForPeriodComparison(parsed as never)) {
-      exclusions.excluded += 1;
-      continue;
-    }
-    const published = new Date(fb.published_at);
-    if (published < periodStart || published > periodEnd) continue;
+  for (const fb of rows) {
+    if (!fb.published_at) exclusions.undated += 1;
 
-    const classification = Array.isArray(fb.classifications)
-      ? fb.classifications[0]
-      : fb.classifications;
+    const classification = pickClassification(fb.classifications);
     if (!classification || classification.status === "failed") {
       exclusions.excluded += 1;
+      verdicts.plain += 1;
       continue;
     }
     if (classification.status === "uncertain") exclusions.uncertain += 1;
     if (classification.is_irrelevant) {
       exclusions.excluded += 1;
+      verdicts.plain += 1;
       continue;
     }
+
+    if (classification.is_praise && classification.is_complaint) verdicts.mixed += 1;
+    else if (classification.is_praise) verdicts.praise += 1;
+    else if (classification.is_complaint) verdicts.pain += 1;
+    else verdicts.plain += 1;
 
     n += 1;
     const aspects = (classification.aspects as Array<{
@@ -621,7 +732,41 @@ async function computeAspectCounts(
     byAspect[key].n = n;
     byAspect[key].exclusions = { ...exclusions };
   }
-  return byAspect;
+  return {
+    byAspect,
+    verdicts,
+    sampled: rows.length,
+    oldest: dated.length ? dated[dated.length - 1] : null,
+    newest: dated.length ? dated[0] : null,
+  };
+}
+
+function pickClassification(
+  raw:
+    | {
+        schema_version?: string;
+        status?: string;
+        is_praise?: boolean | null;
+        is_complaint?: boolean | null;
+        is_irrelevant?: boolean | null;
+        aspects?: unknown;
+      }
+    | Array<{
+        schema_version?: string;
+        status?: string;
+        is_praise?: boolean | null;
+        is_complaint?: boolean | null;
+        is_irrelevant?: boolean | null;
+        aspects?: unknown;
+      }>
+    | null,
+) {
+  const list = Array.isArray(raw) ? raw : raw ? [raw] : [];
+  return (
+    list.find((row) => row.schema_version === CLASSIFICATION_SCHEMA_VERSION) ??
+    list.find((row) => row.status && row.status !== "failed") ??
+    null
+  );
 }
 
 export const inngestFunctions = [syncPipeline];

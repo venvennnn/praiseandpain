@@ -2,6 +2,7 @@ import Link from "next/link";
 import { WorkspaceShell } from "@/components/workspace/shell";
 import { loadWorkspaceContext } from "@/lib/workspace-page";
 import { Button } from "@/components/ui/button";
+import { aspectLabel } from "@/server/jev/taxonomy";
 
 export default async function ReportsPage({
   params,
@@ -65,7 +66,7 @@ export default async function ReportsPage({
                     href={`/w/${workspaceId}/feedback?q=${encodeURIComponent(aspect)}`}
                     className="text-[var(--color-action)]"
                   >
-                    {aspect}
+                    {aspectLabel(aspect)}
                   </Link>
                 </li>
               ))}

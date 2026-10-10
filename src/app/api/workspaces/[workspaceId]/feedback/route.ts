@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { FeedbackListQuerySchema } from "@/shared/schemas/domain";
 import { AuthError, requireMembership } from "@/server/auth/permissions";
+import { feedbackLimitForPlan } from "@/shared/plans";
 
 export async function GET(
   request: Request,
@@ -23,6 +24,12 @@ export async function GET(
     });
 
     const { supabase } = await requireMembership(workspaceId);
+    const { data: workspace } = await supabase
+      .from("workspaces")
+      .select("plan")
+      .eq("id", workspaceId)
+      .maybeSingle();
+    const perEntityLimit = feedbackLimitForPlan(workspace?.plan);
 
     let builder = supabase
       .from("feedback")
@@ -41,7 +48,18 @@ export async function GET(
       builder = builder.ilike("original_text", `%${query.q}%`);
     }
     if (query.source) builder = builder.eq("source", query.source);
-    if (query.entityId) builder = builder.eq("entity_id", query.entityId);
+    if (query.entityId) {
+      builder = builder.eq("entity_id", query.entityId);
+      const { data: edge } = await supabase
+        .from("feedback")
+        .select("published_at")
+        .eq("workspace_id", workspaceId)
+        .eq("entity_id", query.entityId)
+        .order("published_at", { ascending: false, nullsFirst: false })
+        .range(perEntityLimit - 1, perEntityLimit - 1);
+      const cutoff = edge?.[0]?.published_at;
+      if (cutoff) builder = builder.gte("published_at", cutoff);
+    }
     if (query.from) builder = builder.gte("published_at", query.from);
     if (query.to) builder = builder.lte("published_at", query.to);
 
