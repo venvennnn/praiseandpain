@@ -2,7 +2,7 @@ import Link from "next/link";
 import { WorkspaceShell } from "@/components/workspace/shell";
 import { loadWorkspaceContext } from "@/lib/workspace-page";
 import { FeedbackExplorer } from "@/components/feedback/explorer";
-import { feedbackLimitForPlan } from "@/shared/plans";
+import { feedbackLimitForPlan, planLabel } from "@/shared/plans";
 
 export default async function FeedbackPage({
   params,
