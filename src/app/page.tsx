@@ -1,10 +1,12 @@
 import Link from "next/link";
 import { BrandMark } from "@/components/brand/logo";
 import { Button } from "@/components/ui/button";
+import { AuthErrorRedirect } from "@/app/auth-error-redirect";
 
 export default function HomePage() {
   return (
     <div className="min-h-screen hero-atmosphere">
+      <AuthErrorRedirect />
       <header className="mx-auto flex w-full max-w-6xl items-center justify-between px-6 py-6">
         <BrandMark className="text-2xl font-semibold tracking-tight" />
         <nav className="flex items-center gap-3">
