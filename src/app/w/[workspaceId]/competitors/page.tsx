@@ -1,9 +1,11 @@
 import Link from "next/link";
 import { WorkspaceShell } from "@/components/workspace/shell";
 import { loadWorkspaceContext } from "@/lib/workspace-page";
-import { formatPercent } from "@/lib/utils";
+import { AddCompetitor } from "@/components/competitors/add-competitor";
+import { CompetitorBoard } from "@/components/competitors/board";
+import { buildHeadToHead, profileFromSnapshot } from "@/server/analysis/head-to-head";
 import { aspectLabel } from "@/server/jev/taxonomy";
-import type { ComparisonResult, MetricResult } from "@/shared/schemas/metrics";
+import { geminiConfigured } from "@/server/gemini/brief";
 
 export default async function CompetitorsPage({
   params,
@@ -15,75 +17,46 @@ export default async function CompetitorsPage({
 
   const { data: links } = await ctx.supabase
     .from("workspace_entities")
-    .select("role, entity:entities(id, name)")
+    .select("role, entity_id, entity:entities(id, name)")
     .eq("workspace_id", workspaceId);
 
-  const entities = (links ?? []).map((l) => ({
-    role: l.role as string,
-    entity: (Array.isArray(l.entity) ? l.entity[0] : l.entity) as {
-      id: string;
-      name: string;
-    },
-  }));
-  const primary = entities.find((e) => e.role === "primary");
-  const competitors = entities.filter((e) => e.role === "competitor");
+  const places = (links ?? []).map((link) => {
+    const entity = Array.isArray(link.entity) ? link.entity[0] : link.entity;
+    return {
+      id: link.entity_id as string,
+      name: entity?.name ?? "Place",
+      role: link.role as string,
+    };
+  });
+  const primary = places.find((place) => place.role === "primary");
+  const competitors = places.filter((place) => place.role === "competitor");
 
   const { data: snapshots } = await ctx.supabase
     .from("metric_snapshots")
-    .select("*")
+    .select("entity_id, metrics, coverage")
     .eq("workspace_id", workspaceId)
     .eq("active", true);
 
-  const { data: comparison } = await ctx.supabase
-    .from("comparison_snapshots")
-    .select("*")
-    .eq("workspace_id", workspaceId)
-    .eq("active", true)
-    .order("created_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-
-  const aspects = new Set<string>();
-  for (const snap of snapshots ?? []) {
-    for (const key of Object.keys((snap.metrics as object) ?? {})) aspects.add(key);
-  }
-  const aspectList = [...aspects];
-
-  function cell(entityId: string, aspect: string) {
-    const snap = (snapshots ?? []).find((s) => s.entity_id === entityId);
-    const metric = (snap?.metrics as Record<string, { complaint_share?: MetricResult; praise_share?: MetricResult }>)?.[
-      aspect
-    ];
-    return metric;
-  }
-
-  const results = (comparison?.results as ComparisonResult[]) ?? [];
-
-  const protect: string[] = [];
-  const closeGap: string[] = [];
-  const highlight: string[] = [];
-  const shared: string[] = [];
-
-  for (const aspect of aspectList) {
-    if (!primary) break;
-    const ours = cell(primary.entity.id, aspect);
-    const praise = ours?.praise_share?.value ?? null;
-    const pain = ours?.complaint_share?.value ?? null;
-    const competitorPains = competitors.map((c) => cell(c.entity.id, aspect)?.complaint_share?.value ?? null);
-
-    if (praise != null && praise >= 0.5) protect.push(aspect);
-    if (pain != null && competitorPains.some((p) => p != null && p < pain)) closeGap.push(aspect);
-    const adv = results.find(
-      (r) =>
-        r.interpretation === "advantage" &&
-        r.matchedFilters.aspectId === null &&
-        r.entityAId === primary.entity.id,
-    );
-    if (adv && praise != null && praise > 0) highlight.push(aspect);
-    if (pain != null && competitorPains.some((p) => p != null && Math.abs(p - pain) < 0.1)) {
-      shared.push(aspect);
-    }
-  }
+  const snapFor = (id: string) => (snapshots ?? []).find((row) => row.entity_id === id);
+  const heads = primary
+    ? competitors.map((competitor) => {
+        const ours = profileFromSnapshot({
+          id: primary.id,
+          name: primary.name,
+          metrics: snapFor(primary.id)?.metrics as never,
+          coverage: snapFor(primary.id)?.coverage as never,
+        });
+        const theirs = profileFromSnapshot({
+          id: competitor.id,
+          name: competitor.name,
+          metrics: snapFor(competitor.id)?.metrics as never,
+          coverage: snapFor(competitor.id)?.coverage as never,
+        });
+        const labels: Record<string, string> = {};
+        for (const theme of [...ours.themes, ...theirs.themes]) labels[theme.key] = aspectLabel(theme.key);
+        return buildHeadToHead(ours, theirs, labels);
+      })
+    : [];
 
   return (
     <WorkspaceShell
@@ -92,146 +65,40 @@ export default async function CompetitorsPage({
       providerStatus={ctx.providerStatus}
       active="competitors"
     >
-      <h1 className="font-[family-name:var(--font-display)] text-3xl">Competitors</h1>
-      <p className="mt-1 text-sm text-[var(--color-ink-muted)]">
-        Source-aware comparison matrix. Intervals describe sample uncertainty, not selection bias.
-        Public engagement counts are optional context, not causal impact.
-      </p>
+      <div className="flex flex-wrap items-end justify-between gap-4">
+        <div>
+          <h1 className="font-[family-name:var(--font-display)] text-3xl">Competitors</h1>
+          <p className="mt-1 max-w-2xl text-sm text-[var(--color-ink-muted)]">
+            Head to head on the newest reviews in your plan. Green means the gap is in your favour.
+            Red means they are ahead. A theme with a thin sample stays quiet.
+          </p>
+        </div>
+        <p className="text-sm text-[var(--color-ink-muted)]">{competitors.length} of 3 competitors</p>
+      </div>
 
       {!primary ? (
         <p className="mt-8 text-sm">
-          Register your primary entity first.{" "}
+          Register your place first.{" "}
           <Link className="text-[var(--color-action)]" href={`/w/${workspaceId}/onboarding/entity`}>
             Continue onboarding
           </Link>
         </p>
       ) : (
-        <>
-          <div className="mt-8 overflow-x-auto">
-            <table className="min-w-full text-left text-sm">
-              <thead>
-                <tr className="border-b border-[var(--color-border)] text-[var(--color-ink-muted)]">
-                  <th className="py-3 pr-4 font-medium">Topic</th>
-                  <th className="bg-[var(--color-highlight)] py-3 pr-4 font-medium">
-                    {primary.entity.name} (you)
-                  </th>
-                  {competitors.map((c) => (
-                    <th key={c.entity.id} className="py-3 pr-4 font-medium">
-                      {c.entity.name}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {aspectList.length === 0 ? (
-                  <tr>
-                    <td className="py-6 text-[var(--color-ink-muted)]" colSpan={2 + competitors.length}>
-                      No comparison metrics yet. Import or sync feedback, then classify.
-                    </td>
-                  </tr>
-                ) : (
-                  aspectList.map((aspect) => (
-                    <tr key={aspect} className="border-b border-[var(--color-border)] align-top">
-                      <td className="py-3 pr-4 font-medium">{aspectLabel(aspect)}</td>
-                      {[primary, ...competitors].map((col, idx) => {
-                        const m = cell(col.entity.id, aspect);
-                        const complaint = m?.complaint_share;
-                        const praise = m?.praise_share;
-                        return (
-                          <td
-                            key={col.entity.id}
-                            className={`py-3 pr-4 ${idx === 0 ? "bg-[var(--color-highlight)]" : ""}`}
-                          >
-                            {complaint?.status === "unavailable" && praise?.status === "unavailable" ? (
-                              <span className="text-[var(--color-ink-muted)]">Insufficient data</span>
-                            ) : (
-                              <div>
-                                <div className="text-[var(--color-praise)]">
-                                  + {formatPercent(praise?.value, 0)}
-                                </div>
-                                <div className="text-[var(--color-pain)]">
-                                  − {formatPercent(complaint?.value, 0)}
-                                </div>
-                                <div className="text-xs text-[var(--color-ink-muted)]">
-                                  n={complaint?.denominator ?? praise?.denominator ?? 0}
-                                  {complaint?.interval
-                                    ? ` · CI ${formatPercent(complaint.interval.lower, 0)}–${formatPercent(complaint.interval.upper, 0)}`
-                                    : ""}
-                                </div>
-                              </div>
-                            )}
-                          </td>
-                        );
-                      })}
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-          </div>
-
-          <div className="mt-12 grid gap-8 md:grid-cols-2">
-            <InsightList
-              title="Protect Your Strengths"
-              items={protect}
-              empty="Need positive evidence about your entity before listing strengths."
-              workspaceId={workspaceId}
-            />
-            <InsightList
-              title="Close the Gap"
-              items={closeGap}
-              empty="No gaps with sufficient matched data."
-              workspaceId={workspaceId}
-            />
-            <InsightList
-              title="Highlight Your Advantage"
-              items={highlight}
-              empty="Advantage only shown with positive evidence about you plus posterior threshold."
-              workspaceId={workspaceId}
-            />
-            <InsightList
-              title="Explore Shared Needs"
-              items={shared}
-              empty="No shared needs detected yet."
-              workspaceId={workspaceId}
-            />
-          </div>
-        </>
+        <div className="mt-8 space-y-8">
+          <AddCompetitor
+            workspaceId={workspaceId}
+            kind={ctx.workspace.kind}
+            remaining={Math.max(0, 3 - competitors.length)}
+            canEdit={ctx.role === "owner" || ctx.role === "editor"}
+          />
+          <CompetitorBoard
+            workspaceId={workspaceId}
+            ourName={primary.name}
+            heads={heads}
+            geminiReady={geminiConfigured()}
+          />
+        </div>
       )}
     </WorkspaceShell>
-  );
-}
-
-function InsightList({
-  title,
-  items,
-  empty,
-  workspaceId,
-}: {
-  title: string;
-  items: string[];
-  empty: string;
-  workspaceId: string;
-}) {
-  return (
-    <section>
-      <h2 className="font-[family-name:var(--font-display)] text-xl">{title}</h2>
-      {items.length === 0 ? (
-        <p className="mt-2 text-sm text-[var(--color-ink-muted)]">{empty}</p>
-      ) : (
-        <ul className="mt-3 space-y-2">
-          {items.map((item) => (
-            <li key={item} className="border-b border-[var(--color-border)] py-2 text-sm">
-              <Link
-                href={`/w/${workspaceId}/feedback?q=${encodeURIComponent(item)}`}
-                className="text-[var(--color-action)]"
-              >
-                {item}
-              </Link>
-            </li>
-          ))}
-        </ul>
-      )}
-    </section>
   );
 }
