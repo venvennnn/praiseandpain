@@ -13,6 +13,8 @@ Praise & Pain is a **live feedback intelligence** product. These are all require
 
 The app **does not invent reviews, substitute demo data, or fake algorithm outputs** when keys are missing. Sync and discovery return HTTP 503 with the missing requirement listed.
 
+`GEMINI_API_KEY` is optional. Competitor comparison is calculated without it. When the key is set, **Rewrite with Gemini** only restates those scores.
+
 CSV/JSON import exists only as a secondary path for customer-owned files with provenance — it is not a replacement for SerpApi.
 
 ## Local development
