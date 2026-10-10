@@ -81,7 +81,8 @@ export const RegisterEntitySchema = z.object({
 
 export const SyncRequestSchema = z.object({
   workspaceId: z.string().uuid(),
-  entityIds: z.array(z.string().uuid()).min(1).max(4),
+  // Empty means "sync all workspace entities" — server fills this in.
+  entityIds: z.array(z.string().uuid()).max(4).default([]),
   forceFull: z.boolean().optional().default(false),
 });
 
