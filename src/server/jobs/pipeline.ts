@@ -233,10 +233,11 @@ export const syncPipeline = inngest.createFunction(
       return { collectedCount, failures };
     });
 
-    // Classify in small Inngest steps so hundreds of Jev calls cannot timeout one step.
-    const CLASSIFY_BATCH = 12;
-    const CLASSIFY_CONCURRENCY = 4;
-    const MAX_CLASSIFY_BATCHES = 100;
+    // Big parallel Jev batches (one HTTP call per review; API has no multi-review bulk endpoint).
+    // Keep step-sized chunks so Inngest/Vercel time limits are not blown, but make them large.
+    const CLASSIFY_BATCH = 80;
+    const CLASSIFY_CONCURRENCY = 20;
+    const MAX_CLASSIFY_BATCHES = 40;
     let classifiedTotal = 0;
 
     for (let batchIndex = 0; batchIndex < MAX_CLASSIFY_BATCHES; batchIndex++) {
