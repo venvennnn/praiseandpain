@@ -30,15 +30,30 @@ export function AspectBars({ data }: { data: Row[] }) {
 
   return (
     <div className="space-y-4">
-      <div className="h-72 w-full bg-white" role="img" aria-label="Praise and pain by aspect">
+      <div
+        className="w-full bg-white"
+        style={{ height: Math.max(220, data.length * 56) }}
+        role="img"
+        aria-label="Praise and pain by theme"
+      >
         <ResponsiveContainer width="100%" height="100%">
-          <BarChart data={data} margin={{ top: 8, right: 8, left: 0, bottom: 8 }}>
-            <CartesianGrid stroke="#EEF0F3" vertical={false} />
-            <XAxis dataKey="aspect" tick={{ fill: "#3D4450", fontSize: 12 }} />
-            <YAxis
+          <BarChart
+            data={data}
+            layout="vertical"
+            margin={{ top: 8, right: 16, left: 8, bottom: 8 }}
+          >
+            <CartesianGrid stroke="#EEF0F3" horizontal={false} />
+            <XAxis
+              type="number"
               tickFormatter={(v) => `${Math.round(Number(v) * 100)}%`}
               tick={{ fill: "#3D4450", fontSize: 12 }}
               domain={[0, 1]}
+            />
+            <YAxis
+              type="category"
+              dataKey="aspect"
+              width={148}
+              tick={{ fill: "#2a2f38", fontSize: 12 }}
             />
             <Tooltip
               formatter={(value, name) => [
@@ -49,8 +64,8 @@ export function AspectBars({ data }: { data: Row[] }) {
               contentStyle={{ background: "#fff", border: "1px solid #E5E7EB" }}
             />
             <Legend />
-            <Bar dataKey="praise" fill="var(--color-praise)" name="Praise share" />
-            <Bar dataKey="pain" fill="var(--color-pain)" name="Complaint share" />
+            <Bar dataKey="praise" fill="#15803d" name="Praise" radius={[0, 4, 4, 0]} />
+            <Bar dataKey="pain" fill="#dc2626" name="Pain" radius={[0, 4, 4, 0]} />
           </BarChart>
         </ResponsiveContainer>
       </div>

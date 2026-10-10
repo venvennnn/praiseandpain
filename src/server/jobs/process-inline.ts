@@ -8,10 +8,10 @@ import {
   compareComplaintShares,
   type AspectCounts,
 } from "@/server/analysis/metrics";
-import { isEligibleForPeriodComparison } from "@/server/analysis/dates";
 import { CALCULATION_VERSION, COMPARISON_FORMULA_VERSION } from "@/shared/schemas/metrics";
 import type { WorkspaceKind } from "@/shared/schemas/domain";
-import { subDays } from "date-fns";
+import { feedbackLimitForPlan } from "@/shared/plans";
+import { CLASSIFICATION_SCHEMA_VERSION } from "@/server/jev/taxonomy";
 
 /** Dev/fallback path when Inngest is not configured: classify + aggregate only. */
 export async function processWorkspaceInline(workspaceId: string) {
@@ -42,18 +42,31 @@ export async function processWorkspaceInline(workspaceId: string) {
     };
   }
 
-  const { data: pending } = await service
-    .from("feedback")
-    .select("id, original_text")
-    .eq("workspace_id", workspaceId)
-    .eq("is_duplicate", false)
-    .limit(200);
+  const perEntityLimit = feedbackLimitForPlan((workspace as { plan?: string }).plan);
+  const { data: entityRows } = await service
+    .from("workspace_entities")
+    .select("entity_id")
+    .eq("workspace_id", workspaceId);
 
-  for (const fb of pending ?? []) {
+  const pending: Array<{ id: string; original_text: string }> = [];
+  for (const link of entityRows ?? []) {
+    const { data: newest } = await service
+      .from("feedback")
+      .select("id, original_text")
+      .eq("workspace_id", workspaceId)
+      .eq("entity_id", link.entity_id)
+      .eq("is_duplicate", false)
+      .order("published_at", { ascending: false, nullsFirst: false })
+      .limit(perEntityLimit);
+    pending.push(...(newest ?? []));
+  }
+
+  for (const fb of pending) {
     const { data: existing } = await service
       .from("classifications")
       .select("id")
       .eq("feedback_id", fb.id)
+      .eq("schema_version", CLASSIFICATION_SCHEMA_VERSION)
       .maybeSingle();
     if (existing) continue;
 
@@ -109,9 +122,8 @@ export async function processWorkspaceInline(workspaceId: string) {
   }
 
   const periodEnd = new Date();
-  const periodStart = subDays(periodEnd, workspace.analysis_window_days ?? 90);
   const period = {
-    start: periodStart.toISOString(),
+    start: periodEnd.toISOString(),
     end: periodEnd.toISOString(),
     timezone: workspace.timezone ?? "UTC",
   };
@@ -126,8 +138,7 @@ export async function processWorkspaceInline(workspaceId: string) {
       service,
       workspaceId,
       link.entity_id,
-      periodStart,
-      periodEnd,
+      perEntityLimit,
     );
     const metrics: Record<string, unknown> = {};
     for (const [aspectKey, counts] of Object.entries(countsByAspect)) {
@@ -165,16 +176,14 @@ export async function processWorkspaceInline(workspaceId: string) {
       service,
       workspaceId,
       primary.entity_id,
-      periodStart,
-      periodEnd,
+      perEntityLimit,
     );
     for (const competitor of competitors) {
       const competitorCounts = await computeAspectCounts(
         service,
         workspaceId,
         competitor.entity_id,
-        periodStart,
-        periodEnd,
+        perEntityLimit,
       );
       for (const aspectKey of new Set([
         ...Object.keys(primaryCounts),
@@ -234,45 +243,34 @@ async function computeAspectCounts(
   service: ReturnType<typeof createServiceClient>,
   workspaceId: string,
   entityId: string,
-  periodStart: Date,
-  periodEnd: Date,
+  perEntityLimit: number,
 ): Promise<Record<string, AspectCounts>> {
   const { data: feedback } = await service
     .from("feedback")
     .select(
-      "id, published_at, date_precision, crosses_boundary_risk, is_duplicate, classifications(status, is_irrelevant, aspects)",
+      "id, published_at, is_duplicate, classifications(schema_version, status, is_irrelevant, aspects)",
     )
     .eq("workspace_id", workspaceId)
-    .eq("entity_id", entityId);
+    .eq("entity_id", entityId)
+    .eq("is_duplicate", false)
+    .order("published_at", { ascending: false, nullsFirst: false })
+    .limit(perEntityLimit);
 
   const byAspect: Record<string, AspectCounts> = {};
   let n = 0;
   const exclusions = { excluded: 0, uncertain: 0, duplicate: 0, undated: 0 };
 
   for (const fb of feedback ?? []) {
-    if (fb.is_duplicate) {
-      exclusions.duplicate += 1;
-      continue;
-    }
-    if (!fb.published_at) {
-      exclusions.undated += 1;
-      continue;
-    }
-    const parsed = {
-      publishedAt: fb.published_at,
-      precision: fb.date_precision,
-      original: null,
-      crossesBoundaryRisk: fb.crosses_boundary_risk,
-    };
-    if (!isEligibleForPeriodComparison(parsed as never)) {
-      exclusions.excluded += 1;
-      continue;
-    }
-    const published = new Date(fb.published_at);
-    if (published < periodStart || published > periodEnd) continue;
-    const classification = Array.isArray(fb.classifications)
-      ? fb.classifications[0]
-      : fb.classifications;
+    if (!fb.published_at) exclusions.undated += 1;
+    const list = Array.isArray(fb.classifications)
+      ? fb.classifications
+      : fb.classifications
+        ? [fb.classifications]
+        : [];
+    const classification =
+      list.find((row) => row.schema_version === CLASSIFICATION_SCHEMA_VERSION) ??
+      list.find((row) => row.status && row.status !== "failed") ??
+      null;
     if (!classification || classification.status === "failed") {
       exclusions.excluded += 1;
       continue;

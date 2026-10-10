@@ -4,6 +4,8 @@ import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { aspectLabel } from "@/server/jev/taxonomy";
+import { reviewTone, toneClass, type ReviewTone } from "@/shared/tone";
 
 type Evidence = {
   id: string;
@@ -40,14 +42,17 @@ export function FeedbackExplorer({
   initialItems,
   entities,
   filters,
+  scopeLabel,
 }: {
   workspaceId: string;
   initialItems: FeedbackItem[];
   entities: Array<{ id: string; name: string; source: string }>;
   filters: Record<string, string | undefined>;
+  scopeLabel: string;
 }) {
   const router = useRouter();
   const [q, setQ] = useState(filters.q ?? "");
+  const [toneFilter, setToneFilter] = useState<ReviewTone | "all">("all");
   const [selected, setSelected] = useState<FeedbackItem | null>(null);
   const [correcting, setCorrecting] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
@@ -56,6 +61,13 @@ export function FeedbackExplorer({
     const map = new Map(entities.map((e) => [e.id, e.name]));
     return (id: string) => map.get(id) ?? id.slice(0, 8);
   }, [entities]);
+
+  const visibleItems = useMemo(() => {
+    if (toneFilter === "all") return initialItems;
+    return initialItems.filter(
+      (item) => reviewTone(currentClassification(item.classifications)) === toneFilter,
+    );
+  }, [initialItems, toneFilter]);
 
   function applyFilters(next: Record<string, string | undefined>) {
     const params = new URLSearchParams();
@@ -133,44 +145,102 @@ export function FeedbackExplorer({
           </Button>
         </form>
 
-        <ul className="mt-6 divide-y divide-[var(--color-border)]">
-          {initialItems.length === 0 ? (
-            <li className="py-8 text-sm text-[var(--color-ink-muted)]">
-              No feedback collected yet. Import a file or configure live connectors.
+        <div className="mt-4 flex flex-wrap gap-2">
+          {(
+            [
+              ["all", "All"],
+              ["praise", "Praise"],
+              ["pain", "Pain"],
+              ["plain", "Uncategorised"],
+            ] as const
+          ).map(([key, label]) => (
+            <button
+              key={key}
+              type="button"
+              onClick={() => setToneFilter(key)}
+              className={`rounded-full border px-3 py-1 text-xs font-semibold transition ${
+                toneFilter === key
+                  ? key === "praise"
+                    ? "border-[var(--color-praise)] bg-[var(--color-praise)] text-white"
+                    : key === "pain"
+                      ? "border-[var(--color-pain)] bg-[var(--color-pain)] text-white"
+                      : "border-[var(--color-ink)] bg-[var(--color-ink)] text-white"
+                  : "border-[var(--color-border)] bg-white text-[var(--color-ink)] hover:-translate-y-0.5"
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+        <p className="mt-3 text-xs text-[var(--color-ink-muted)]">{scopeLabel}</p>
+
+        <ul className="mt-4 space-y-3">
+          {visibleItems.length === 0 ? (
+            <li className="rounded-lg border border-[var(--color-border)] bg-white px-4 py-8 text-sm text-[var(--color-ink-muted)]">
+              Nothing in this view yet. Sync live feedback to pull the newest reviews.
             </li>
           ) : (
-            initialItems.map((item) => {
-              const classification = Array.isArray(item.classifications)
-                ? item.classifications[0]
-                : item.classifications;
+            visibleItems.map((item, index) => {
+              const classification = currentClassification(item.classifications);
+              const tone = reviewTone(classification);
+              const aspects = (classification?.aspects ?? []).filter((a) => !a.key.includes("unmatched"));
               return (
-                <li key={item.id}>
+                <li
+                  key={item.id}
+                  className="feedback-card"
+                  style={{ animationDelay: `${Math.min(index, 12) * 40}ms` }}
+                >
                   <button
                     type="button"
-                    className="w-full py-4 text-left hover:bg-[var(--color-surface-muted)]"
+                    className={`w-full rounded-lg border border-[var(--color-border)] px-4 py-4 text-left transition ${toneClass(tone)}`}
                     onClick={() => {
                       setSelected(item);
                       setMessage(null);
                     }}
                   >
-                    <div className="flex flex-wrap gap-2 text-xs text-[var(--color-ink-muted)]">
-                      <span>{item.source}</span>
-                      <span>{entityName(item.entity_id)}</span>
-                      <span>
+                    <div className="flex flex-wrap items-center gap-2 text-xs">
+                      <span
+                        className={`rounded-full px-2 py-0.5 font-semibold ${
+                          tone === "praise"
+                            ? "bg-[var(--color-praise)] text-white"
+                            : tone === "pain"
+                              ? "bg-[var(--color-pain)] text-white"
+                              : "border border-[var(--color-border)] bg-white text-[var(--color-ink-muted)]"
+                        }`}
+                      >
+                        {tone === "praise" ? "Praise" : tone === "pain" ? "Pain" : "Uncategorised"}
+                      </span>
+                      <span className="text-[var(--color-ink-muted)]">{entityName(item.entity_id)}</span>
+                      <span className="text-[var(--color-ink-muted)]">
                         {item.published_at
                           ? new Date(item.published_at).toLocaleDateString()
                           : "Undated"}
                       </span>
-                      {classification?.is_praise ? (
-                        <span className="text-[var(--color-praise)]">Praise</span>
-                      ) : null}
-                      {classification?.is_complaint ? (
-                        <span className="text-[var(--color-pain)]">Pain</span>
+                      {item.rating != null ? (
+                        <span className="text-[var(--color-ink-muted)]">{item.rating}★</span>
                       ) : null}
                     </div>
                     <p className="mt-2 line-clamp-3 text-sm text-[var(--color-ink)]">
                       {item.original_text}
                     </p>
+                    {aspects.length ? (
+                      <div className="mt-3 flex flex-wrap gap-1.5">
+                        {aspects.slice(0, 4).map((aspect) => (
+                          <span
+                            key={aspect.key}
+                            className={`rounded-full px-2 py-0.5 text-[11px] ${
+                              aspect.sentiment === "positive"
+                                ? "bg-[color-mix(in_srgb,var(--color-praise)_16%,white)] text-[var(--color-praise)]"
+                                : aspect.sentiment === "negative"
+                                  ? "bg-[color-mix(in_srgb,var(--color-pain)_14%,white)] text-[var(--color-pain)]"
+                                  : "bg-[var(--color-surface-muted)] text-[var(--color-ink-muted)]"
+                            }`}
+                          >
+                            {aspectLabel(aspect.key)}
+                          </span>
+                        ))}
+                      </div>
+                    ) : null}
                   </button>
                 </li>
               );
@@ -195,9 +265,7 @@ export function FeedbackExplorer({
               </a>
             ) : null}
             {(() => {
-              const classification = Array.isArray(selected.classifications)
-                ? selected.classifications[0]
-                : selected.classifications;
+              const classification = currentClassification(selected.classifications);
               const spans = classification?.evidence_spans ?? [];
               return (
                 <>
@@ -279,4 +347,9 @@ export function FeedbackExplorer({
       </aside>
     </div>
   );
+}
+
+function currentClassification(raw: FeedbackItem["classifications"]) {
+  const list = Array.isArray(raw) ? raw : raw ? [raw] : [];
+  return list[0] ?? null;
 }

@@ -52,7 +52,7 @@ export default function HomePage() {
           className="pointer-events-none absolute right-6 bottom-16 hidden h-40 w-40 rounded-full md:block"
           style={{
             background:
-              "conic-gradient(from 180deg, rgba(15,118,110,0.25), transparent 40%, rgba(225,29,72,0.22), transparent 75%)",
+              "conic-gradient(from 180deg, rgba(21,128,61,0.28), transparent 40%, rgba(220,38,38,0.24), transparent 75%)",
             animation: "pulse-soft 4.5s ease-in-out infinite",
           }}
           aria-hidden

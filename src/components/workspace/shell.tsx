@@ -67,7 +67,7 @@ export function WorkspaceShell({
           ))}
         </nav>
       </header>
-      <main className="mx-auto max-w-7xl px-6 py-8">{children}</main>
+      <main className="animate-rise mx-auto max-w-7xl px-6 py-8">{children}</main>
     </div>
   );
 }

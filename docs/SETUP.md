@@ -32,7 +32,14 @@ npm run workers
 
 ## Migrations
 
-Apply `supabase/migrations/20261010000000_init.sql` in the Supabase SQL editor, or:
+Apply these SQL files in the Supabase SQL editor, in order:
+
+- `supabase/migrations/20261010000000_init.sql`
+- `supabase/migrations/20261010090000_fix_workspace_rls.sql`
+- `supabase/migrations/20261010093000_fix_entities_rls.sql`
+- `supabase/migrations/20261010110000_workspace_plan.sql` (base = newest 200 reviews per place, pro = 2,000)
+
+Or:
 
 ```bash
 npx supabase db push

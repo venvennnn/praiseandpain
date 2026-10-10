@@ -125,36 +125,69 @@ export async function classifyFeedback(params: {
     });
 
     const answers = response.answers;
-    const primary = answers.primary_aspect;
-    const sentiment = answers.aspect_sentiment;
     const severityAns = answers.severity;
     const evidenceAns = answers.evidence_sentence_id;
+    const catalog = aspectsForKind(params.kind);
+    const verdictAns = answers.verdict;
+    const verdict =
+      verdictAns?.type === "choice" &&
+      (verdictAns.choice === "praise" ||
+        verdictAns.choice === "pain" ||
+        verdictAns.choice === "mixed" ||
+        verdictAns.choice === "unclear")
+        ? verdictAns.choice
+        : "unclear";
 
-    const aspectKey =
-      primary?.type === "choice" ? primary.choice : "uncertain";
-    const aspectSentiment =
-      sentiment?.type === "choice"
-        ? (sentiment.choice as "positive" | "negative" | "mixed" | "not_applicable")
-        : "not_applicable";
-
-    const known = new Set(aspectsForKind(params.kind).map((a) => a.key));
-    const unmatched = aspectKey === "none" || aspectKey === "uncertain" || !known.has(aspectKey);
-
-    let status: ClassificationResult["status"] = "ok";
-    if (aspectKey === "uncertain" || (primary?.type === "choice" && (primary.confidence ?? 1) < 0.45)) {
-      status = "uncertain";
+    const aspects: ClassificationResult["aspects"] = [];
+    const probabilities: Record<string, unknown> = { verdict: verdictAns ?? null };
+    for (const aspect of catalog) {
+      const sent = answers[`sent_${aspect.key}`];
+      if (sent?.type === "choice") probabilities[aspect.key] = sent;
+      if (sent?.type !== "choice") continue;
+      if (sent.choice !== "positive" && sent.choice !== "negative" && sent.choice !== "mixed") {
+        continue;
+      }
+      aspects.push({
+        key: aspect.key,
+        sentiment: sent.choice,
+        unmatched: false,
+      });
     }
+
+    const primaryAns = answers.primary_theme;
+    const primaryKey =
+      primaryAns?.type === "choice" && primaryAns.choice !== "none" ? primaryAns.choice : null;
+    if (primaryKey && catalog.some((aspect) => aspect.key === primaryKey) && !aspects.some((aspect) => aspect.key === primaryKey)) {
+      const inferred =
+        verdict === "praise" ? "positive" : verdict === "pain" ? "negative" : verdict === "mixed" ? "mixed" : null;
+      if (inferred) {
+        aspects.unshift({ key: primaryKey, sentiment: inferred, unmatched: false });
+      }
+    } else if (primaryKey) {
+      const index = aspects.findIndex((aspect) => aspect.key === primaryKey);
+      if (index > 0) {
+        const [lead] = aspects.splice(index, 1);
+        aspects.unshift(lead);
+      }
+    }
+
+    const isPraise = verdict === "praise" || verdict === "mixed";
+    const isComplaint = verdict === "pain" || verdict === "mixed";
+    let status: ClassificationResult["status"] =
+      verdict === "unclear" && aspects.length === 0 ? "uncertain" : "ok";
+    if (noulYes(answers, "is_irrelevant")) status = "ok";
 
     const evidence: ClassificationResult["evidence"] = [];
     if (evidenceAns?.type === "choice" && evidenceAns.choice !== "none") {
       const span = sentences.find((s) => s.id === evidenceAns.choice);
+      const lead = aspects[0];
       if (span && validateEvidenceSpan(params.text, span.start, span.end, span.text)) {
         evidence.push({
           sentenceId: span.id,
           start: span.start,
           end: span.end,
-          aspectKey: unmatched ? null : aspectKey,
-          sentiment: aspectSentiment,
+          aspectKey: lead?.key ?? null,
+          sentiment: lead?.sentiment ?? null,
           excerpt: span.text,
         });
       }
@@ -164,20 +197,17 @@ export async function classifyFeedback(params: {
       model: response.model,
       schemaVersion: CLASSIFICATION_SCHEMA_VERSION,
       status,
-      isPraise: noulYes(answers, "is_praise"),
-      isComplaint: noulYes(answers, "is_complaint"),
+      isPraise,
+      isComplaint,
       isRequest: noulYes(answers, "is_request"),
       isQuestion: noulYes(answers, "is_question"),
       isIrrelevant: noulYes(answers, "is_irrelevant"),
-      switchingIntent: noulYes(answers, "is_switching_intent") ?? noulYes(answers, "switching_intent"),
+      switchingIntent: noulYes(answers, "switching_intent"),
       severity: severityAns?.type === "score" ? severityAns.score : null,
-      aspects: unmatched
-        ? [{ key: aspectKey, sentiment: aspectSentiment, unmatched: true }]
-        : [{ key: aspectKey, sentiment: aspectSentiment, unmatched: false }],
-      probabilities: {
-        primary_aspect: primary?.type === "choice" ? primary.probabilities : {},
-        aspect_sentiment: sentiment?.type === "choice" ? sentiment.probabilities : {},
-      },
+      aspects: aspects.length
+        ? aspects
+        : [{ key: "unmatched", sentiment: "not_applicable", unmatched: true }],
+      probabilities,
       evidence,
       cacheKey,
     };

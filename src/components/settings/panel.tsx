@@ -88,6 +88,17 @@ export function SettingsPanel({
     router.refresh();
   }
 
+  async function changePlan(plan: "base" | "pro") {
+    const res = await fetch(`/api/workspaces/${workspaceId}/plan`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ plan }),
+    });
+    const json = await res.json();
+    setImportMessage(res.ok ? `Plan set to ${plan}. Next sync uses ${json.perEntityLimit} newest reviews per place.` : json.error);
+    router.refresh();
+  }
+
   async function deleteWorkspace() {
     if (deleteConfirm !== workspace.name) return;
     const res = await fetch(`/api/workspaces/${workspaceId}`, { method: "DELETE" });
@@ -96,6 +107,30 @@ export function SettingsPanel({
 
   return (
     <div className="mt-10 space-y-12">
+      <section className="space-y-3 text-sm">
+        <h2 className="font-[family-name:var(--font-display)] text-xl">Plan</h2>
+        <p className="text-[var(--color-ink-muted)]">
+          Each plan reads the newest reviews for you and the same number for every competitor.
+          Payments are not connected yet — upgrading only changes that cap.
+        </p>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <PlanCard
+            title="Base"
+            detail="200 newest reviews per place"
+            active={(workspace as { plan?: string }).plan !== "pro"}
+            disabled={role !== "owner"}
+            onClick={() => changePlan("base")}
+          />
+          <PlanCard
+            title="Pro"
+            detail="2,000 newest reviews per place"
+            active={(workspace as { plan?: string }).plan === "pro"}
+            disabled={role !== "owner"}
+            onClick={() => changePlan("pro")}
+          />
+        </div>
+      </section>
+
       <section className="space-y-2 text-sm">
         <h2 className="font-[family-name:var(--font-display)] text-xl">Required providers</h2>
         <p>
@@ -250,5 +285,40 @@ export function SettingsPanel({
         )}
       </section>
     </div>
+  );
+}
+
+function PlanCard({
+  title,
+  detail,
+  active,
+  disabled,
+  onClick,
+}: {
+  title: string;
+  detail: string;
+  active: boolean;
+  disabled: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      disabled={disabled}
+      onClick={onClick}
+      className={`rounded-xl border px-4 py-4 text-left transition hover:-translate-y-0.5 disabled:cursor-default disabled:hover:translate-y-0 ${
+        active
+          ? "border-[var(--color-action)] bg-[var(--color-highlight)]"
+          : "border-[var(--color-border)] bg-white"
+      }`}
+    >
+      <div className="flex items-center justify-between gap-3">
+        <p className="font-[family-name:var(--font-display)] text-lg">{title}</p>
+        <span className="text-xs font-semibold text-[var(--color-ink-muted)]">
+          {active ? "Current" : "Switch"}
+        </span>
+      </div>
+      <p className="mt-1 text-sm text-[var(--color-ink-muted)]">{detail}</p>
+    </button>
   );
 }
