@@ -1,0 +1,108 @@
+Praise & Pain — Complete Grok Build Prompt
+1. Mission and design authority
+Build Praise & Pain for praiseandpain.site: a deployable feedback intelligence application for businesses, app developers, and creators. Tagline: “Know what they love. Fix what they don’t.” Homepage headline: “Their feedback. Your next move.”
+Use the supplied Stitch exports and screenshots as the visual specification. Inspect them before implementation; preserve layouts, typography, spacing, components, and responsive behaviour. Extend missing screens consistently. Keep backgrounds predominantly pure white, borders subtle, text charcoal, Praise teal, Pain coral, and actions indigo. Charts need white backgrounds, minimal grids, accessible labels, and visible denominators.
+Inspect the existing repository and follow its conventions. Implement working functionality, not disconnected mock screens. Create an implementation checklist and execute it through verification. Clearly report external credentials or configuration still required. Never fabricate live data.
+2. Stack and responsibility boundaries
+Default to Next.js App Router, TypeScript, Tailwind, accessible component primitives, Supabase PostgreSQL/Auth, Inngest background orchestration, and a maintained chart library. Preserve a compatible existing stack. Verify current official documentation and pin installed dependency versions.
+Deploy the application on Vercel, with Supabase persistence and configured background jobs. Use one TypeScript codebase initially.
+The browser handles rendering, filters, navigation, and interaction. Server routes handle authentication, validation, permissions, and job submission. Background workers handle collection, classification, aggregation, alerts, and reports. PostgreSQL stores source records, workflow state, and versioned results. No provider credentials or authoritative scoring logic belongs in the browser.
+3. Application structure
+Organise code into app routes, components, server/connectors, server/analysis, server/jobs, server/repositories, and shared schemas. Keep statistical functions pure and independently testable.
+Implement landing, authentication, onboarding, overview, feedback explorer, competitors, tasks, creator backlog, reports, and settings. Use workspace-scoped routes.
+Provide typed endpoints for discovery, entity registration, sync submission/status, paginated feedback, metrics, comparisons, tasks, interventions, corrections, exports, and deletion. Validate inputs with Zod. A sync request returns HTTP 202 and a run identifier; it never waits for the full pipeline.
+4. Authentication and workspaces
+Implement email authentication and persistent sessions through Supabase Auth. Provide owner, editor, and viewer roles. Owners manage workspace settings and membership; editors manage tasks and corrections; viewers inspect results.
+Enable row-level security and appropriate grants on exposed tables. Enforce membership in every server action, including worker-dispatch endpoints. Service-role credentials remain server-side; workers independently validate workspace and job ownership.
+Provide a fictional, read-only demo accessible without registration. Its data and reports must remain isolated from live workspaces. Display “Demo data” persistently. Missing provider keys should disable live collection with setup guidance, not silently substitute demo results.
+5. Onboarding and source scope
+Let users select Business, App, or Creator, discover their entity, confirm identity, and select competitors. Display location, platform identifiers, and channel or app links to prevent mistaken matches.
+Configure timezone, language, analysis window, refresh cadence, and retrieval budget. Start with one primary entity and up to three competitors.
+Deliver live Google Maps reviews, Apple App Store reviews, Google Play product reviews, and YouTube comments through verified SerpApi adapters. Support available YouTube transcripts. Do not treat Instagram/Facebook profile APIs as complete comment access. Provide CSV/JSON imports with mapping previews, validation, size limits, provenance, and duplicate handling.
+6. Database model
+Create migrations for workspaces, memberships, entities, workspace_entities, source_connections, content_items, feedback, feedback_revisions, topics, taxonomy_versions, classifications, evidence_spans, corrections, collection_runs, run_steps, provider_calls, metric_snapshots, comparison_snapshots, alerts, tasks, task_evidence, interventions, content_ideas, notifications, and audit_events.
+Include workspace ownership, timestamps, and foreign keys throughout tenant data. Entities represent apps, businesses, branches, and channels; content_items represent videos or posts. Store competitor relationships separately.
+Feedback stores provider ID, entity/content reference, original text, original date string, parsed timestamp and precision, retrieval timestamp, language, optional rating, source URL, and content hash. Store raw responses privately with configurable retention.
+Classifications record model, schema, taxonomy version, probabilities where returned, status, and source revision. Snapshots record period, filters, coverage, formula version, and classification generation. Enforce tenant-consistent foreign keys and uniqueness constraints.
+7. Connector implementation
+Define adapters exposing discover, fetchDetails, fetchFeedbackPage, and optional fetchTranscript. Return a common schema containing records, cursor, quota metadata, and coverage information.
+Verify official engine parameters and pagination before coding; never infer capabilities from API names. YouTube video metadata and comment pages require separate requests. Follow reply pagination only within budget.
+Apply timeouts, bounded retries with jitter for transient errors, and rate-limit handling. Stop on invalid credentials or schema errors. Redact secrets from logs.
+Prefer chronological retrieval when supported. Resume from stored cursors and use overlapping incremental windows to detect edits. Deduplicate provider IDs; text similarity alone must not delete independent comments. Record page caps, sorting, truncation, and missing dates.
+8. Durable processing and usage
+Implement resumable stages: discover, collect, normalise, classify, aggregate, compare, alert, and summarise. Give every run and step idempotency keys. Prevent overlapping runs for the same workspace/entity configuration.
+Checkpoint after pages and classification batches. Retry safely without duplicate tasks, metrics, or notifications. Keep the previous successful snapshot visible until replacement metrics are committed atomically.
+Schedule using workspace timezone and handle daylight-saving changes. Deleted or paused workspaces must cancel pending processing.
+Reserve budgets transactionally before provider calls. Track requests, cache hits, returned usage, and failures. Clearly distinguish estimated cost from provider-confirmed usage. Never expose a shared account’s quota as one workspace’s balance. Display honest stage progress and collected/classified counts.
+9. Jev classification
+Integrate TypeSafe/Jev server-side using current documented request and response schemas. Make the model configurable; record its concrete version. Use shared feedback context and atomic typed questions.
+Classify praise, complaint, request, question, irrelevant content, aspect membership, aspect sentiment, described severity, and explicit switching intent. Permit multiple aspects and unmatched/uncertain outcomes.
+Supply different definitions for businesses, apps, and creators. Include negation and boundary examples: “cold beer” versus “cold food,” “dry rub,” and “long wait but worth it.”
+Store exact evidence offsets into original text. Obtain sentence identifiers through preprocessing and supported classification outputs; do not assume Jev generates arbitrary quotations. Validate every evidence span.
+Cache by text hash, context, model, and schema. User corrections are versioned overrides, never destructive replacement of original outputs.
+10. Emerging topic discovery
+Start without a separate embedding service. Collect unmatched feedback and use an optional generative-model adapter to propose specific topics, definitions, and cited feedback identifiers.
+Validate references and screen for redundant topics. Keep suggestions pending until approved or validated against a configured review process. Use Jev to evaluate membership against accepted definitions.
+Version taxonomy updates. Reclassify affected comparison windows before publishing cross-period results. Never interpret a taxonomy change as a customer trend. If the generative provider is unavailable, preserve unmatched items for manual categorisation and keep the core workflow functional.
+11. Backend metrics
+Implement all calculations in server/analysis and scheduled aggregation jobs. The frontend reads computed values, uncertainty, denominators, and evidence IDs.
+For each entity, aspect, source, and period define:
+N = eligible, successfully classified unique feedback records;
+M = records mentioning the aspect;
+C = aspect-negative records;
+P = aspect-positive records.
+Calculate prevalence M/N, complaint share C/M, praise share P/M, and overall complaint incidence C/N. Mixed feedback can contribute to both C and P; disclose that those shares need not total 100%. Null denominators produce unavailable values, never zero.
+Show excluded, uncertain, duplicate, and undated counts. Compute time trends from publication dates, not retrieval dates. Keep undated feedback out of period comparisons.
+12. Uncertainty and competitor inference
+For binary complaint share, implement Beta(1+C, 1+M-C) smoothing and 95% credible intervals with a tested numerical library. Explain that intervals describe uncertainty within retrieved samples and do not correct selection bias.
+Compare matched sources, languages, periods, and relevant peers. Default to source-separated views. For combined views use explicitly fixed weights and report coverage; never silently pool incompatible ratings.
+Use seeded posterior draws for complaint-share differences. Label an advantage only when posterior probability of a practically meaningful difference exceeds a documented threshold. Default minimum: 30 aspect mentions per entity; configurable five-percentage-point difference and 95% probability. Otherwise show inconclusive or insufficient data.
+Label thresholds as product heuristics. Persist them with results.
+13. Alerts and priorities
+Compare a completed seven-day window with the preceding 28 days. Require minimum aspect counts, stable collection settings, a practical increase, and persistence across two completed windows. Deduplicate alerts and provide cooldowns. Treat these as monitoring heuristics; evaluate false alerts before scaling across many topics.
+Rank issues using normalised components: 30% severity, 25% prevalence, 20% momentum, 15% breadth across content or branches, and 10% competitive gap. Renormalise available components and show missing inputs.
+Display evidence strength separately. User-entered effort supports a priority-versus-effort view, not an invented revenue forecast. Version formulas and expose component explanations.
+14. Dashboard and feedback experience
+Implement Praise, Pain, and Next Moves tabs, workspace/date selectors, refresh status, feedback counts, strengths, open issues, and monitored tasks.
+Feedback supports server-side pagination, search, and topic/source/entity/date filters. Evidence drawers display original excerpts, source links, sentiment labels, classification confidence where meaningful, and correction actions.
+Charts include complaint-share timelines, praise/pain aspect bars, and priority-versus-effort plots. All provide tooltips with counts and accessible table alternatives. Display empty, stale, partial, loading, and unavailable states distinctly. Distinguish “zero retrieved complaints” from “no feedback collected.”
+15. Competitor workspace
+Build the Stitch comparison matrix with topics as rows and selected entities as columns. Highlight the user’s entity subtly. Cells show positive/negative shares, mention counts, and uncertainty.
+Create four evidence-backed lists: Protect Your Strengths, Close the Gap, Highlight Your Advantage, and Explore Shared Needs. Require positive evidence about the user before calling a competitor weakness their advantage.
+Every insight opens its underlying feedback and can create a linked task. For creators, compare similar topics and formats. Public engagement counts are optional context, not quality or causal impact measurements. Preserve source-specific limitations.
+16. Tasks and creator backlog
+Implement Needs Attention, In Progress, Monitoring, and Closed states. Tasks contain owner, due date, priority, evidence links, notes, and audit history. Recurrence is a separate flag with evidence.
+Avoid automatically duplicating tasks when an existing issue gains comments. Suggest attachment instead.
+Creator ideas move through Considering, Planned, and Published. Attach the resulting video or post to the originating questions. Analyse available transcript text for topic, hook, format, and CTA using domain-specific Jev questions. Do not invent transcripts or infer audience demand from the creator’s own words. Separate audience evidence from content analysis.
+17. Intervention evaluation
+Let users record action description, affected entity/aspects, and implementation date. Default to comparable 28-day before/after windows, excluding the intervention day and allowing a washout period.
+Compare rates rather than raw counts using the same classification version and source filters. Show interval estimates, counts, completeness, and observed percentage-point changes.
+Return improvement observed, deterioration observed, no clear change, or insufficient data. Incomplete follow-up periods remain pending. Overlapping interventions should be flagged. Never report causation or manufactured significance. More advanced causal designs are future extensions requiring suitable controls and assumptions.
+18. Summaries, reports, and security
+Generate daily in-app digests and weekly comparisons from stored metrics. Optional language-model prose must cite existing evidence identifiers and use supplied numbers. Validate references; fall back to deterministic templates when validation fails.
+Treat all retrieved text as untrusted data, never tool instructions. Do not allow feedback to alter system prompts, fetch arbitrary URLs, or trigger actions.
+Provide CSV and escaped HTML report exports, formula-safe CSV cells, workspace deletion, and retention settings. Delete associated storage and scheduled work. Sanitize rendered text, rate-limit endpoints, verify job signatures, and prevent cross-tenant cache leakage. No automatic public replies or external messages.
+19. Deployment configuration
+Provide an environment template covering Supabase public/server credentials, SerpApi, TypeSafe model/key, background-job credentials, optional generative-model credentials, application URL, and budget settings. Explain public versus server-only variables.
+Document local setup, migrations, seed data, background-worker development, Vercel deployment, Supabase redirect URLs, scheduler registration, and custom-domain configuration. Use separate development and production projects. Add health checks without exposing secrets.
+Store timestamps in UTC and display workspace-local dates. Keep analytics and provider failures observable through structured, redacted logs with correlation IDs. Do not implement speculative billing; enforce configurable usage limits and leave payments outside the first release.
+20. Verification and completion
+Test tenant isolation, permissions, connector parsing, pagination, edited reviews, idempotency, quotas, mixed sentiment, zero denominators, posterior calculations, taxonomy changes, and intervention windows.
+Create a held-out labelled dataset spanning enabled domains; report classification precision/recall, error examples, and uncertain coverage. Split by entity where practical. Include boundary-case regression fixtures.
+Run an end-to-end flow: authenticate, create workspace, add competitor, collect/import feedback, inspect evidence, compare, create task, record intervention, and export report. Verify mobile layouts against Stitch.
+Deliver migrations, setup documentation, architecture notes, connector capability matrix, demo fixtures, tests, and deployment instructions. Build core infrastructure first, then complete each enabled connector and workflow. Credentials may block live verification, but must not leave fake functionality. Finish with exact working features, validation performed, and remaining external setup.
+21. Acceptance and operational details
+Use index-backed pagination and aggregate queries; never download an entire workspace into the browser. Authorisation must also protect metric views, report downloads, progress subscriptions, and storage objects. Use tenant-safe cache keys and explicit invalidation after corrections or taxonomy changes.
+Keep demo actions read-only or isolated per visitor. Demo records must never enter production alerts, usage accounting, or evaluation results. Show provider failures per source while preserving successful source results and the last complete comparison.
+The finished product must answer, with clickable evidence: what people love, what hurts, where competitors differ, who owns the next action, and what feedback followed that action. Every visible button must work, explain its unavailable state, or be omitted. Do not stop after generating the interface.
+22. Concrete backend contracts
+Define a MetricResult contract containing value, numerator, denominator, interval, status, exclusions, evidenceIds, period, and calculationVersion. Define ComparisonResult with both entities, matched filters, difference, posteriorProbability, practicalThreshold, and interpretation. Components must consume these contracts without reconstructing statistical conclusions.
+Use transactions when publishing a completed snapshot and advancing its active pointer. Failed runs retain diagnostic records but never overwrite a healthy snapshot with empty aggregates. Reprocessing edited feedback must invalidate dependent classifications and aggregates, while preserving the historical revision trail.
+Implement entity-level publication timestamps separately from ingestion timestamps. For relative dates, retain the original string and estimated precision. Exclude records whose date uncertainty crosses a comparison boundary or explicitly surface a sensitivity warning.
+23. Build order and handoff
+First inspect Stitch assets and repository instructions. Then implement design tokens, application shell, database migrations, authentication, and permissions. Next complete one connector through the entire backend pipeline and evidence interface. Reuse its contracts for the remaining required connectors.
+After that, implement comparisons, tasks, creator planning, intervention tracking, reports, and scheduling. Finish responsive polish and verification. Maintain a progress document that records completed functionality and external blockers without substituting it for implementation.
+Include a reproducible example calculation using fixture data so maintainers can trace one dashboard number through feedback membership, classification, filtering, aggregation, and presentation. Document how to change thresholds without silently rewriting historical reports.
+Finally, provide commands to run development, migrations, workers, tests, and production builds. Identify which checks used fixtures and which actually exercised external services. Keep credentials out of screenshots, exported reports, repository history, and recorded demonstrations.
+
+Make sure that the site works online and people should be readily able to use it. NO DEMO DATA OR FAKE DATA. 
