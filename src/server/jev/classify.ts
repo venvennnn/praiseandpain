@@ -5,6 +5,7 @@ import {
   CLASSIFICATION_SCHEMA_VERSION,
   aspectsForKind,
   buildClassificationQuestions,
+  specificIssue,
 } from "./taxonomy";
 import { jevConfigured, jevDecide, type JevResponse } from "./client";
 
@@ -169,6 +170,20 @@ export async function classifyFeedback(params: {
         const [lead] = aspects.splice(index, 1);
         aspects.unshift(lead);
       }
+    }
+
+    const specificAns = answers.specific_issue;
+    const specific =
+      specificAns?.type === "choice" ? specificIssue(specificAns.choice) : undefined;
+    if (specific) {
+      const existing = aspects.findIndex((aspect) => aspect.key === specific.key);
+      const lead = {
+        key: specific.key,
+        sentiment: (specific.polarity === "positive" ? "positive" : "negative") as "positive" | "negative",
+        unmatched: false,
+      };
+      if (existing >= 0) aspects.splice(existing, 1);
+      aspects.unshift(lead);
     }
 
     const isPraise = verdict === "praise" || verdict === "mixed";

@@ -67,10 +67,10 @@ export default async function CompetitorsPage({
     >
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
-          <h1 className="font-[family-name:var(--font-display)] text-3xl">Competitors</h1>
+          <p className="text-xs font-semibold tracking-[0.14em] text-[var(--color-ink-muted)] uppercase">Head to head</p>
+          <h1 className="font-[family-name:var(--font-display)] text-3xl font-semibold">Competitors</h1>
           <p className="mt-1 max-w-2xl text-sm text-[var(--color-ink-muted)]">
-            Head to head on the newest reviews in your plan. Green means the gap is in your favour.
-            Red means they are ahead. A theme with a thin sample stays quiet.
+            Newest reviews in the plan, scored the same way for you and each competitor. Green is a gap in your favour. Red is a gap in theirs.
           </p>
         </div>
         <p className="text-sm text-[var(--color-ink-muted)]">{competitors.length} of 3 competitors</p>

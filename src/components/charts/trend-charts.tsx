@@ -77,7 +77,7 @@ export function TrendCharts({
         ) : null}
       </div>
 
-      <ShiftRow series={series} />
+      <MovementBoard series={series} />
 
       {hasRates ? (
         <ChartCard title="Positive % and negative %">
@@ -130,7 +130,7 @@ export function TrendCharts({
       )}
 
       {series.categories.length > 0 ? (
-        <ChartCard title="Category share of classified reviews">
+        <ChartCard title="Theme share of classified reviews">
           <ResponsiveContainer width="100%" height="100%">
             <LineChart data={categoryRows} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
               <CartesianGrid stroke="#EEF0F3" vertical={false} />
@@ -241,49 +241,87 @@ export function TrendCharts({
   );
 }
 
-function ShiftRow({ series }: { series: TrendSeries }) {
-  if (!series.praiseShift && !series.painShift && series.categoryMovers.length === 0) {
+function MovementBoard({ series }: { series: TrendSeries }) {
+  const hasMovement =
+    series.praiseShift || series.painShift || series.categoryMovers.length > 0 || series.categoryPraiseMovers.length > 0;
+  if (!hasMovement) {
     return (
       <p className="text-sm text-[var(--color-ink-muted)]">
-        A change summary appears once two periods each have at least 8 classified reviews.
+        Movement appears once two periods each have at least 8 classified reviews, and a theme has at least 3 mentions in both.
       </p>
     );
   }
   return (
-    <div className="grid gap-3 md:grid-cols-3">
-      <ShiftCard
-        label="Positive %"
-        shift={series.praiseShift}
-        tone="praise"
-      />
-      <ShiftCard label="Negative %" shift={series.painShift} tone="pain" />
-      <div className="rounded-lg border border-[var(--color-border)] bg-white px-3 py-3">
-        <p className="text-xs font-semibold tracking-wide text-[var(--color-ink-muted)] uppercase">
-          Category pain
-        </p>
-        {series.categoryMovers.length === 0 ? (
-          <p className="mt-2 text-sm text-[var(--color-ink-muted)]">
-            Needs two periods with at least 3 mentions of the same theme.
-          </p>
-        ) : (
-          <ul className="mt-2 space-y-1 text-sm">
-            {series.categoryMovers.slice(0, 3).map((mover) => (
-              <li key={mover.key}>
-                <span className="font-medium">{aspectLabel(mover.key)}</span>{" "}
-                <span className={mover.percentagePoints > 0 ? "text-[var(--color-pain)]" : "text-[var(--color-praise)]"}>
-                  {mover.percentagePoints > 0 ? "+" : ""}
-                  {mover.percentagePoints.toFixed(0)} pp
-                </span>
-                <span className="text-[var(--color-ink-muted)]">
-                  {" "}
-                  ({mover.earlierLabel} → {mover.laterLabel})
-                </span>
-              </li>
-            ))}
-          </ul>
-        )}
+    <div className="space-y-4">
+      <div className="grid gap-3 md:grid-cols-2">
+        <ShiftCard label="Positive %" shift={series.praiseShift} tone="praise" />
+        <ShiftCard label="Negative %" shift={series.painShift} tone="pain" />
+      </div>
+      <div className="grid gap-3 lg:grid-cols-2">
+        <MoverList
+          title="Pain inside each theme"
+          empty="Needs two periods with at least 3 mentions."
+          movers={series.categoryMovers}
+          risingIsPain
+        />
+        <MoverList
+          title="Praise inside each theme"
+          empty="Needs two periods with at least 3 mentions."
+          movers={series.categoryPraiseMovers}
+          risingIsPain={false}
+        />
       </div>
     </div>
+  );
+}
+
+function MoverList({
+  title,
+  empty,
+  movers,
+  risingIsPain,
+}: {
+  title: string;
+  empty: string;
+  movers: TrendSeries["categoryMovers"];
+  risingIsPain: boolean;
+}) {
+  const max = Math.max(8, ...movers.map((mover) => Math.abs(mover.percentagePoints)));
+  return (
+    <section className="report-card p-4">
+      <h3 className="text-sm font-semibold">{title}</h3>
+      {movers.length === 0 ? (
+        <p className="mt-2 text-sm text-[var(--color-ink-muted)]">{empty}</p>
+      ) : (
+        <ul className="mt-3 space-y-3">
+          {movers.slice(0, 8).map((mover) => {
+            const rising = mover.percentagePoints > 0;
+            const pain = risingIsPain ? rising : !rising;
+            return (
+              <li key={mover.key}>
+                <div className="flex items-baseline justify-between gap-2 text-sm">
+                  <span className="font-medium">{aspectLabel(mover.key)}</span>
+                  <span className={pain ? "text-[var(--color-pain)]" : "text-[var(--color-praise)]"}>
+                    {mover.percentagePoints > 0 ? "+" : ""}
+                    {mover.percentagePoints.toFixed(0)} pp
+                  </span>
+                </div>
+                <div className="share-bar mt-1 bg-[var(--color-surface-muted)]">
+                  <span
+                    className={pain ? "bg-[var(--color-pain)]" : "bg-[var(--color-praise)]"}
+                    style={{ width: `${Math.max(6, (Math.abs(mover.percentagePoints) / max) * 100)}%` }}
+                  />
+                </div>
+                <p className="mt-1 text-xs text-[var(--color-ink-muted)]">
+                  {formatPercent(mover.earlier, 0)} (n={mover.earlierMentions}) → {formatPercent(mover.later, 0)} (n=
+                  {mover.laterMentions}) · {mover.earlierLabel} to {mover.laterLabel}
+                </p>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </section>
   );
 }
 

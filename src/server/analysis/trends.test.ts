@@ -97,7 +97,7 @@ describe("buildTrends", () => {
         }),
       );
     }
-    const series = buildTrends(rows, { timeZone: "UTC" });
+    const series = buildTrends(rows, { timeZone: "UTC", grain: "month" });
     const staffTrend = series.categories.find((category) => category.key === "staff");
     const january = staffTrend?.points.find((point) => point.period === "2024-01");
     const august = staffTrend?.points.find((point) => point.period === "2024-08");
@@ -107,5 +107,35 @@ describe("buildTrends", () => {
     expect(series.praiseShift?.percentagePoints).toBeCloseTo(-100);
     expect(series.categoryMovers[0]?.key).toBe("staff");
     expect(series.categoryMovers[0]?.percentagePoints).toBeCloseTo(75);
+    expect(series.categoryPraiseMovers[0]?.percentagePoints).toBeCloseTo(-75);
+  });
+
+  it("charts specific issues ahead of a broader parent once three exist", () => {
+    const series = buildTrends(
+      [
+        review({
+          publishedAt: "2024-04-02T00:00:00.000Z",
+          isComplaint: true,
+          aspects: [
+            { key: "staff", sentiment: "negative" },
+            { key: "staff_rude", sentiment: "negative" },
+            { key: "long_wait", sentiment: "negative" },
+            { key: "food_cold", sentiment: "negative" },
+          ],
+        }),
+        review({
+          publishedAt: "2024-04-09T00:00:00.000Z",
+          isComplaint: true,
+          aspects: [
+            { key: "staff", sentiment: "negative" },
+            { key: "staff_ignored", sentiment: "negative" },
+          ],
+        }),
+      ],
+      { timeZone: "UTC", maxCategories: 3 },
+    );
+    expect(series.categories.map((category) => category.key)).not.toContain("staff");
+    expect(series.categories.every((category) => category.key !== "food" && category.key !== "speed")).toBe(true);
+    expect(series.categories.length).toBe(3);
   });
 });

@@ -50,7 +50,7 @@ export async function TrendSection({
       id: link.entity_id as string,
       name,
       role: link.role as string,
-      series: buildTrends(reviews, { timeZone }),
+      series: buildTrends(reviews, { timeZone, maxCategories: 8 }),
     });
   }
 
@@ -60,7 +60,7 @@ export async function TrendSection({
   ];
 
   return (
-    <section id="trends" className="mt-12 rounded-xl border border-[var(--color-border)] bg-white p-4">
+    <section id="trends" className="report-card mt-4 p-5">
       <p className="mb-4 text-xs text-[var(--color-ink-muted)]">
         {planLabel(plan)}. Each series uses only that newest window, counted separately for you and for
         each competitor.

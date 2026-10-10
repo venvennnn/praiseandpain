@@ -1,3 +1,4 @@
+import { isSpecificIssue } from "@/server/jev/taxonomy";
 import { betaComplaintShare } from "./beta";
 
 export type TrendAspect = {
@@ -70,16 +71,19 @@ export type TrendSeries = {
   categories: CategoryTrend[];
   praiseShift: RateShift | null;
   painShift: RateShift | null;
-  categoryMovers: Array<{
-    key: string;
-    earlierLabel: string;
-    laterLabel: string;
-    earlier: number;
-    later: number;
-    earlierMentions: number;
-    laterMentions: number;
-    percentagePoints: number;
-  }>;
+  categoryMovers: CategoryMover[];
+  categoryPraiseMovers: CategoryMover[];
+};
+
+export type CategoryMover = {
+  key: string;
+  earlierLabel: string;
+  laterLabel: string;
+  earlier: number;
+  later: number;
+  earlierMentions: number;
+  laterMentions: number;
+  percentagePoints: number;
 };
 
 const MIN_SHIFT_N = 8;
@@ -192,9 +196,8 @@ export function buildTrends(
     }
   }
 
-  const categories: CategoryTrend[] = [...themeTotals.entries()]
-    .sort((a, b) => b[1].mentions - a[1].mentions || a[0].localeCompare(b[0]))
-    .slice(0, maxCategories)
+  const rankedThemes = rankThemeTotals(themeTotals, maxCategories);
+  const categories: CategoryTrend[] = rankedThemes
     .map(([key, total]) => ({
       key,
       mentions: total.mentions,
@@ -226,8 +229,19 @@ export function buildTrends(
     categories,
     praiseShift: rateShift(points, "praiseRate"),
     painShift: rateShift(points, "painRate"),
-    categoryMovers: categoryMovers(categories, points),
+    categoryMovers: categoryMovers(categories, points, "negativeShare"),
+    categoryPraiseMovers: categoryMovers(categories, points, "positiveShare"),
   };
+}
+
+function rankThemeTotals(
+  themeTotals: Map<string, { mentions: number; positive: number; negative: number }>,
+  maxCategories: number,
+) {
+  const entries = [...themeTotals.entries()];
+  const specific = entries.filter(([key]) => isSpecificIssue(key));
+  const pool = specific.length >= 3 ? specific : entries;
+  return pool.sort((a, b) => b[1].mentions - a[1].mentions || a[0].localeCompare(b[0])).slice(0, maxCategories);
 }
 
 function eligible(review: TrendReview): boolean {
@@ -268,25 +282,31 @@ function rateShift(points: TrendPoint[], field: "praiseRate" | "painRate"): Rate
   };
 }
 
-function categoryMovers(categories: CategoryTrend[], points: TrendPoint[]) {
+function categoryMovers(
+  categories: CategoryTrend[],
+  points: TrendPoint[],
+  field: "negativeShare" | "positiveShare",
+): CategoryMover[] {
   const labels = new Map(points.map((point) => [point.period, point.label]));
   const movers = [];
   for (const category of categories) {
     const usable = category.points.filter(
-      (point) => point.mentions >= MIN_THEME_MENTIONS && point.negativeShare != null,
+      (point) => point.mentions >= MIN_THEME_MENTIONS && point[field] != null,
     );
     if (usable.length < 2) continue;
     const earlier = usable[0];
     const later = usable[usable.length - 1];
+    const earlierRate = earlier[field] as number;
+    const laterRate = later[field] as number;
     movers.push({
       key: category.key,
       earlierLabel: labels.get(earlier.period) ?? earlier.period,
       laterLabel: labels.get(later.period) ?? later.period,
-      earlier: earlier.negativeShare as number,
-      later: later.negativeShare as number,
+      earlier: earlierRate,
+      later: laterRate,
       earlierMentions: earlier.mentions,
       laterMentions: later.mentions,
-      percentagePoints: ((later.negativeShare as number) - (earlier.negativeShare as number)) * 100,
+      percentagePoints: (laterRate - earlierRate) * 100,
     });
   }
   return movers.sort((a, b) => Math.abs(b.percentagePoints) - Math.abs(a.percentagePoints));
@@ -295,7 +315,7 @@ function categoryMovers(categories: CategoryTrend[], points: TrendPoint[]) {
 export function chooseGrain(civilDates: string[]): "week" | "month" {
   if (civilDates.length < 2) return "month";
   const span = daysBetween(civilDates[0], civilDates[civilDates.length - 1]);
-  return span <= 120 ? "week" : "month";
+  return span <= 270 ? "week" : "month";
 }
 
 function periodsBetween(start: string, end: string, grain: "week" | "month"): string[] {

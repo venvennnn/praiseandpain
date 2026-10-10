@@ -6,12 +6,15 @@
   --color-ink: #2a2f38;
   --color-ink-muted: #6b7280;
   --color-border: #e5e7eb;
-  --color-surface-muted: #f7f8fa;
+  --color-surface-muted: #f4f6f3;
+  --color-app: #f5f6f4;
   --color-praise: #15803d;
+  --color-praise-soft: #eef8f1;
   --color-pain: #dc2626;
-  --color-action: #4338ca;
-  --color-action-hover: #3730a3;
-  --color-highlight: #eef2ff;
+  --color-pain-soft: #fff1f2;
+  --color-action: #5b4dff;
+  --color-action-hover: #4338ca;
+  --color-highlight: #eef0ff;
 }
 
 @theme inline {
@@ -91,18 +94,39 @@ body {
 }
 
 .tone-praise {
-  background: linear-gradient(90deg, rgba(21, 128, 61, 0.14), #ffffff 46%);
-  border-left: 4px solid var(--color-praise);
+  background: var(--color-praise-soft);
+  border: 1px solid #d7f0df;
 }
 
 .tone-pain {
-  background: linear-gradient(90deg, rgba(220, 38, 38, 0.12), #ffffff 46%);
-  border-left: 4px solid var(--color-pain);
+  background: var(--color-pain-soft);
+  border: 1px solid #ffd5d8;
 }
 
 .tone-neutral {
   background: #ffffff;
-  border-left: 4px solid transparent;
+  border: 1px solid var(--color-border);
+}
+
+.report-card {
+  border: 1px solid var(--color-border);
+  border-radius: 1.25rem;
+  background: #ffffff;
+}
+
+.share-bar {
+  height: 0.45rem;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.7);
+}
+
+.share-bar > span {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  transform-origin: left center;
+  animation: bar-in 700ms cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
 .feedback-card {
