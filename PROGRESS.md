@@ -19,13 +19,15 @@
 ## Explicitly not included (per product owner)
 
 - [x] No demo workspace / fabricated feedback data
+- [x] SerpApi treated as **required** primary collection (not optional)
+- [x] Sync/discovery fail hard with 503 when SerpApi / Jev / Inngest missing
 
-## External blockers
+## External blockers (must configure for live product)
 
-- Supabase project + env vars required for online auth/data
-- SerpApi key required for live collection
-- TypeSafe/Jev key required for classification
-- Inngest keys for production workers
+- **SERPAPI_API_KEY** — primary path for real Maps / App Store / Play / YouTube data
+- **TYPESAFE_API_KEY** — real classification
+- Supabase project + migrations + Auth redirects
+- Inngest keys + `/api/inngest` registration
 - Vercel + `praiseandpain.site` DNS
 - Stitch design exports were not present in the repository; UI follows the written visual system
 

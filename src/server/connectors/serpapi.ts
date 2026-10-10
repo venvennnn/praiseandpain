@@ -20,7 +20,7 @@ export function requireSerpApiKey(): string {
   const key = process.env.SERPAPI_API_KEY;
   if (!key) {
     throw new ConnectorConfigError(
-      "SERPAPI_API_KEY is not configured. Live collection is disabled. Add the key in environment settings, or import feedback via CSV/JSON.",
+      "SERPAPI_API_KEY is required. SerpApi powers live Google Maps, App Store, Google Play, and YouTube collection — the core of Praise & Pain. Set the key; the app will not invent reviews.",
     );
   }
   return key;

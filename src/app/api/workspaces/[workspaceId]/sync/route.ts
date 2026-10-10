@@ -3,6 +3,10 @@ import { SyncRequestSchema } from "@/shared/schemas/domain";
 import { AuthError, requireMembership } from "@/server/auth/permissions";
 import { inngest, events } from "@/server/jobs/inngest";
 import { nanoid } from "nanoid";
+import {
+  assertCollectionStackConfigured,
+  MissingRequiredConfigError,
+} from "@/server/config/requirements";
 
 export async function POST(
   request: Request,
@@ -10,6 +14,8 @@ export async function POST(
 ) {
   try {
     const { workspaceId } = await context.params;
+    assertCollectionStackConfigured();
+
     const json = await request.json().catch(() => ({}));
     const body = SyncRequestSchema.parse({
       workspaceId,
@@ -89,6 +95,12 @@ export async function POST(
 
     return NextResponse.json({ runId: run.id, status: "queued" }, { status: 202 });
   } catch (err) {
+    if (err instanceof MissingRequiredConfigError) {
+      return NextResponse.json(
+        { error: err.message, missing: err.missing, required: true },
+        { status: 503 },
+      );
+    }
     if (err instanceof AuthError) {
       return NextResponse.json({ error: err.message }, { status: err.status });
     }

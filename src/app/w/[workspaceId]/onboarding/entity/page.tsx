@@ -94,8 +94,9 @@ export default function EntityOnboardingPage() {
           Confirm your entity
         </h1>
         <p className="mt-3 text-[var(--color-ink-muted)]">
-          Location, platform IDs, and channel/app links are shown to prevent mistaken matches.
-          Start with one primary entity and up to three competitors.
+          Discovery runs through SerpApi against real Google Maps, App Store, Google Play, and
+          YouTube results. Location, platform IDs, and channel/app links are shown to prevent
+          mistaken matches. Start with one primary entity and up to three competitors.
         </p>
 
         <form onSubmit={discover} className="mt-8 space-y-4">

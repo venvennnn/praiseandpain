@@ -1,40 +1,30 @@
 # Praise & Pain — setup
 
-## Prerequisites
+## Required stack (not optional)
 
-- Node.js 22+
-- A Supabase project (Auth + Postgres)
-- Vercel project for production
-- Optional: SerpApi, TypeSafe/Jev, Inngest
+Praise & Pain is a **live feedback intelligence** product. These are all required:
 
-**No demo or fabricated feedback is shipped.** Missing keys disable live features with explicit guidance.
-
-## Environment variables
-
-Copy `.env.example` to `.env.local`.
-
-| Variable | Visibility | Purpose |
+| Integration | Env vars | Role |
 | --- | --- | --- |
-| `NEXT_PUBLIC_APP_URL` | Public | Canonical URL / redirects |
-| `NEXT_PUBLIC_SUPABASE_URL` | Public | Supabase API URL |
-| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Public | Browser auth (RLS enforced) |
-| `SUPABASE_SERVICE_ROLE_KEY` | Server | Workers / privileged writes |
-| `SERPAPI_API_KEY` | Server | Live Google Maps / App Store / Play / YouTube |
-| `TYPESAFE_API_KEY` | Server | Jev classification |
-| `TYPESAFE_MODEL` | Server | Default `jev-latest` |
-| `INNGEST_EVENT_KEY` / `INNGEST_SIGNING_KEY` | Server | Background orchestration |
-| `GENERATIVE_API_KEY` | Server | Optional emerging-topic proposals |
+| **SerpApi** | `SERPAPI_API_KEY` | **Primary collection** — real Google Maps reviews, Apple App Store reviews, Google Play reviews, YouTube comments (+ transcripts when available) |
+| **TypeSafe/Jev** | `TYPESAFE_API_KEY`, `TYPESAFE_MODEL` | **Real classification** — praise/pain/aspects/evidence |
+| **Supabase** | `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY` | Auth, Postgres, RLS |
+| **Inngest** | `INNGEST_EVENT_KEY`, `INNGEST_SIGNING_KEY` | Durable collect → classify → aggregate pipeline |
+
+The app **does not invent reviews, substitute demo data, or fake algorithm outputs** when keys are missing. Sync and discovery return HTTP 503 with the missing requirement listed.
+
+CSV/JSON import exists only as a secondary path for customer-owned files with provenance — it is not a replacement for SerpApi.
 
 ## Local development
 
 ```bash
 npm install
 cp .env.example .env.local
-# fill credentials
+# fill ALL required keys above
 npm run dev
 ```
 
-In another terminal (when Inngest keys/dev server are available):
+In another terminal:
 
 ```bash
 npm run workers
@@ -48,51 +38,42 @@ Apply `supabase/migrations/20261010000000_init.sql` in the Supabase SQL editor, 
 npx supabase db push
 ```
 
-Configure Auth redirect URLs:
+Auth redirect URLs:
 
 - `http://localhost:3000/auth/callback`
 - `https://praiseandpain.site/auth/callback`
-- Your Vercel preview URLs as needed
 
 Use separate Supabase projects for development and production.
 
-## First user path (no SerpApi required)
+## First live user path
 
-1. Sign up / sign in
+1. Sign up / sign in (Supabase Auth)
 2. Create a workspace
-3. Register a primary entity (or skip discovery and create via import after a manual entity row)
-4. Import CSV from Settings → mapping preview → import
-5. With `TYPESAFE_API_KEY`, trigger sync/classification jobs via Inngest
-6. Inspect feedback evidence, compare, create tasks, export reports
-
-Without SerpApi, live discovery/collection stays disabled.
-Without TypeSafe, classification stays skipped (status `skipped`) — metrics are not invented.
+3. Discover and confirm your entity via SerpApi
+4. Add up to three competitors the same way
+5. Click **Sync live feedback** — SerpApi collects, Jev classifies, metrics publish
+6. Inspect evidence, compare, create tasks, export reports
 
 ## Vercel
 
 1. Import the GitHub repository
-2. Set the same environment variables
-3. Deploy
-4. Point `praiseandpain.site` to the deployment
-5. Register the Inngest app URL: `https://<host>/api/inngest`
+2. Set every required env var (SerpApi included)
+3. Deploy and point `praiseandpain.site`
+4. Register Inngest: `https://<host>/api/inngest`
 
-## Health check
+## Health
 
-`GET /api/health` reports which integrations are configured without exposing secrets.
+`GET /api/health` reports `ready` and `missing` without exposing secrets. `ready: true` only when Supabase, SerpApi, Jev, and Inngest are all configured.
 
 ## Commands
 
 ```bash
-npm run dev          # Next.js
-npm run build        # production build
-npm run start        # serve build
-npm test             # vitest (fixture-backed analysis tests)
-npm run typecheck    # tsc --noEmit
-npm run workers      # Inngest dev
+npm run dev
+npm run build
+npm run start
+npm test              # fixture-backed analysis math only
+npm run typecheck
+npm run workers
 ```
 
-## Verification notes
-
-- Unit tests use fixtures only (no external network).
-- Live SerpApi / TypeSafe / Supabase checks require real credentials.
-- CSV import is the supported path when live connectors are unconfigured.
+Live SerpApi / TypeSafe / Supabase checks require the real credentials above.

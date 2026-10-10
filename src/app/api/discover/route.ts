@@ -20,9 +20,9 @@ export async function POST(request: Request) {
       return NextResponse.json(
         {
           results: [],
-          disabled: true,
-          message:
-            "SERPAPI_API_KEY is not configured. Live discovery is disabled. Import feedback via CSV/JSON instead.",
+          required: true,
+          error:
+            "SERPAPI_API_KEY is required. Entity discovery uses SerpApi for real Maps / App Store / Play / YouTube matches. Configure the key to continue — no fabricated results.",
         },
         { status: 503 },
       );

@@ -34,8 +34,9 @@ export default function HomePage() {
           Their feedback. Your next move.
         </p>
         <p className="animate-rise-delay mt-4 max-w-lg text-base text-[var(--color-ink-muted)]">
-          Know what they love. Fix what they don’t. Collect reviews and comments, classify
-          praise and complaints with evidence, and turn them into owned next moves.
+          Know what they love. Fix what they don’t. Pull real Maps, App Store, Play, and
+          YouTube feedback, classify praise and complaints with evidence, and turn them into
+          owned next moves.
         </p>
         <div className="animate-rise-delay mt-10 flex flex-wrap items-center gap-3">
           <Button asChild size="lg">

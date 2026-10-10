@@ -2,9 +2,10 @@ import Link from "next/link";
 import { WorkspaceShell } from "@/components/workspace/shell";
 import { MetricCard } from "@/components/metric/metric-card";
 import { AspectBars } from "@/components/charts/aspect-bars";
-import { Button } from "@/components/ui/button";
+import { SyncButton } from "@/components/workspace/sync-button";
 import { loadWorkspaceContext } from "@/lib/workspace-page";
 import type { MetricResult } from "@/shared/schemas/metrics";
+import { integrationStatus } from "@/server/config/requirements";
 
 export default async function OverviewPage({
   params,
@@ -80,9 +81,12 @@ export default async function OverviewPage({
             Praise, Pain, and Next Moves for {ctx.workspace.name}
           </p>
         </div>
-        <form action={`/api/workspaces/${workspaceId}/sync`} method="post">
-          <SyncButton workspaceId={workspaceId} disabled={!ctx.providerStatus.serpapi} />
-        </form>
+        <SyncButton
+          workspaceId={workspaceId}
+          serpapiReady={ctx.providerStatus.serpapi}
+          jevReady={ctx.providerStatus.jev}
+          inngestReady={integrationStatus().inngest}
+        />
       </div>
 
       <div className="mt-6 flex flex-wrap gap-4 text-sm text-[var(--color-ink-muted)]">
@@ -96,13 +100,13 @@ export default async function OverviewPage({
       </div>
 
       {!ctx.providerStatus.serpapi || !ctx.providerStatus.jev ? (
-        <div className="mt-4 border border-[var(--color-border)] bg-[var(--color-surface-muted)] px-4 py-3 text-sm">
-          {!ctx.providerStatus.serpapi
-            ? "Live collection is disabled until SERPAPI_API_KEY is set. You can still import CSV/JSON from Settings."
-            : null}{" "}
-          {!ctx.providerStatus.jev
-            ? "Classification is paused until TYPESAFE_API_KEY is set. Metrics stay empty rather than inventing labels."
-            : null}
+        <div className="mt-4 border border-[var(--color-pain)] bg-white px-4 py-3 text-sm">
+          <p className="font-semibold text-[var(--color-pain)]">Live stack required</p>
+          <p className="mt-1 text-[var(--color-ink)]">
+            SerpApi collects real reviews/comments. TypeSafe/Jev classifies them with real
+            algorithms. Neither is optional for the product path — configure the keys to sync.
+            The app will not invent feedback or labels.
+          </p>
         </div>
       ) : null}
 
@@ -169,21 +173,5 @@ export default async function OverviewPage({
         </div>
       </section>
     </WorkspaceShell>
-  );
-}
-
-function SyncButton({
-  workspaceId,
-  disabled,
-}: {
-  workspaceId: string;
-  disabled: boolean;
-}) {
-  return (
-    <Button asChild disabled={disabled} title={disabled ? "SerpApi key required for live sync" : "Sync feedback"}>
-      <Link href={`/w/${workspaceId}/settings#import`}>
-        {disabled ? "Import feedback" : "Refresh data"}
-      </Link>
-    </Button>
   );
 }

@@ -107,11 +107,18 @@ export const syncPipeline = inngest.createFunction(
       const failures: Array<{ entityId: string; error: string }> = [];
 
       if (!serpApiConfigured()) {
-        // Import-only path: skip live connectors without substituting data.
-        await checkpointStep(workspaceId, runId, "collect", "collect:skip-no-serpapi", {
-          reason: "SERPAPI_API_KEY missing",
+        const message =
+          "SERPAPI_API_KEY is required for collection. Sync aborted — no fabricated feedback.";
+        await checkpointStep(workspaceId, runId, "collect", "collect:fail-no-serpapi", {
+          reason: message,
+        }, "failed");
+        await updateRun(runId, {
+          status: "failed",
+          stage: "collect",
+          error: message,
+          completed_at: new Date().toISOString(),
         });
-        return { collectedCount: 0, failures: [{ entityId: "*", error: "SerpApi not configured" }] };
+        throw new Error(message);
       }
 
       for (const entity of entities.entities) {
@@ -264,10 +271,23 @@ export const syncPipeline = inngest.createFunction(
         });
 
         if (result.status === "skipped") {
-          await checkpointStep(workspaceId, runId, "classify", "classify:skipped-no-jev", {
-            reason: "TYPESAFE_API_KEY missing",
+          const message =
+            "TYPESAFE_API_KEY is required for classification. Pipeline aborted — no invented labels.";
+          await checkpointStep(
+            workspaceId,
+            runId,
+            "classify",
+            "classify:fail-no-jev",
+            { reason: message },
+            "failed",
+          );
+          await updateRun(runId, {
+            status: "failed",
+            stage: "classify",
+            error: message,
+            completed_at: new Date().toISOString(),
           });
-          break;
+          throw new Error(message);
         }
 
         const { data: classification } = await service

@@ -97,14 +97,22 @@ export function SettingsPanel({
   return (
     <div className="mt-10 space-y-12">
       <section className="space-y-2 text-sm">
-        <h2 className="font-[family-name:var(--font-display)] text-xl">Providers</h2>
+        <h2 className="font-[family-name:var(--font-display)] text-xl">Required providers</h2>
         <p>
-          SerpApi live collection:{" "}
-          <strong>{providerStatus.serpapi ? "configured" : "disabled"}</strong>
+          SerpApi (Maps / App Store / Play / YouTube):{" "}
+          <strong className={providerStatus.serpapi ? "text-[var(--color-praise)]" : "text-[var(--color-pain)]"}>
+            {providerStatus.serpapi ? "configured" : "REQUIRED — not configured"}
+          </strong>
         </p>
         <p>
           TypeSafe/Jev classification:{" "}
-          <strong>{providerStatus.jev ? "configured" : "paused"}</strong>
+          <strong className={providerStatus.jev ? "text-[var(--color-praise)]" : "text-[var(--color-pain)]"}>
+            {providerStatus.jev ? "configured" : "REQUIRED — not configured"}
+          </strong>
+        </p>
+        <p className="text-[var(--color-ink-muted)]">
+          These power real collection and real algorithms. CSV import is only a secondary
+          provenance path for your own files — never a substitute for live SerpApi data.
         </p>
         <p className="text-[var(--color-ink-muted)]">
           Usage {workspace.usage_consumed ?? 0}/{workspace.usage_limit ?? 0} (workspace budget,

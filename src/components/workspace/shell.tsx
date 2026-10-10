@@ -39,11 +39,15 @@ export function WorkspaceShell({
           </div>
           <div className="flex items-center gap-3 text-xs">
             {!providerStatus.serpapi ? (
-              <span className="text-[var(--color-ink-muted)]">Live collection disabled</span>
-            ) : null}
+              <span className="font-medium text-[var(--color-pain)]">SerpApi required</span>
+            ) : (
+              <span className="text-[var(--color-praise)]">SerpApi live</span>
+            )}
             {!providerStatus.jev ? (
-              <span className="text-[var(--color-ink-muted)]">Classification paused</span>
-            ) : null}
+              <span className="font-medium text-[var(--color-pain)]">Jev required</span>
+            ) : (
+              <span className="text-[var(--color-praise)]">Jev live</span>
+            )}
           </div>
         </div>
         <nav className="mx-auto flex max-w-7xl gap-1 overflow-x-auto px-4 pb-2">

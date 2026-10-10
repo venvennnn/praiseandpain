@@ -1,6 +1,8 @@
 # Connector capability matrix
 
-Verified against SerpApi documentation before implementation. Live calls require `SERPAPI_API_KEY`.
+Verified against SerpApi documentation before implementation.
+
+**`SERPAPI_API_KEY` is required.** These connectors are the primary product path for real feedback. Sync and discovery refuse to run without the key and never invent results.
 
 | Source | Discover engine | Feedback engine | Pagination | Chronological | Transcripts | Notes |
 | --- | --- | --- | --- | --- | --- | --- |
